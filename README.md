@@ -40,7 +40,7 @@ And deploy locally
 ```sh
 $ truffle deploy
 ```
- Do the same in your **[CheckDot InsuranceProtocol Contract](https://github.com/checkdot/CheckDot.InsuranceProtocol)** local repository. In the migration module replace the contract address with the one you generated deploying your local **[CheckDot Smart Contract](https://github.com/checkdot/CheckdotERC20Contract)**. Deploy the staking contract:
+ Do the same in your **[CheckDot InsuranceProtocol Contract](https://github.com/checkdot/CheckDot.InsuranceProtocol)** local repository. In the migration module replace the contract address with the one you generated deploying your local **[CheckDot Smart Contract](https://github.com/checkdot/CheckdotERC20Contract)**. Deploy the contract:
  ```sh
  $ truffle deploy --network development
  ```
