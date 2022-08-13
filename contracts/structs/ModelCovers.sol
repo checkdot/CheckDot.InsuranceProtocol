@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.9;
 
-library ModelInsurances {
+library ModelCovers {
 
-    struct Insurance {
+    struct Cover {
         uint256 id;
+        uint256 productId;
         string  uri;
         address coveredAddress;
         uint256 utcStart;
@@ -12,7 +13,7 @@ library ModelInsurances {
         uint256 coveredAmount;
         address coveredCurrency;
         uint256 premiumAmount;
-        InsuranceStatus status;
+        CoverStatus status;
 
         // claim
         string  claimProperties;
@@ -20,11 +21,12 @@ library ModelInsurances {
         uint256 claimUtcPayoutDate;
     }
 
-    enum InsuranceStatus {
-        NotSet,         // 0 |
-        Active,         // 1 ===|
-        ClaimProcedure, // 2 ===|
-        Canceled        // 3 |
+    enum CoverStatus {
+        NotSet,           // 0 |
+        Active,           // 1 ===|
+        ClaimApprobation, // 2 ===|
+        Claim,            // 3 ===|
+        Canceled          // 4 |
     }
 
     // modifier insuranceValidForClaim(bytes32 _policyId) {

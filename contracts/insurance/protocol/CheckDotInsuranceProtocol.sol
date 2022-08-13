@@ -2,25 +2,35 @@
 pragma solidity ^0.8.9;
 
 import "../../interfaces/IERC20.sol";
+import "../../interfaces/IDAOProxy.sol";
 import "../../interfaces/IInsuranceProtocol.sol";
 import "../../interfaces/ICheckDotPoolFactory.sol";
 import "../../interfaces/ICheckDotInsuranceStore.sol";
+import "../../interfaces/ICheckDotPool.sol";
+import "../../interfaces/ICheckDotERC721InsuranceToken.sol";
+import "../../interfaces/ICheckDotInsuranceRiskDataCalculator.sol";
 import "../../utils/Counters.sol";
 import "../../utils/SafeMath.sol";
+import "../../utils/SignedSafeMath.sol";
 import "../../utils/BytesHelper.sol";
+import "../../utils/TransferHelper.sol";
 import "../../utils/Owned.sol";
+import "../../utils/Addresses.sol";
 import "../../structs/ModelProducts.sol";
+import "../../structs/ModelPools.sol";
 
 import "../../../../../CheckDot.DAOProxyContract/contracts/interfaces/IOwnedProxy.sol";
 
 contract CheckDotInsuranceProtocol {
     using SafeMath for uint256;
+    using SignedSafeMath for int256;
     using BytesHelper for bytes;
     using Counters for Counters.Counter;
     using ModelProducts for ModelProducts.Product;
+    using ModelProducts for ModelProducts.ProductWithDetails;
 
-    event Claim(uint256 policyId, uint256 amount);    
-    event PaymentReceived(uint256 policyId, uint256 amount);
+    event ClaimCreated(uint256 id, uint256 productId, uint256 amount);    
+    event PurchasedCover(uint256 coverId, uint256 productId, uint256 coveredAmount, uint256 premiumCost);
     event ProductUpdated(uint256 id,
         string title,
         string description,
@@ -36,24 +46,39 @@ contract CheckDotInsuranceProtocol {
         Counters.Counter counter;
     }
 
-    struct Pools {
-        address factory;
-    }
-
-    struct Proof {
-        address soulBoundTokenAddress;
-    }
-
     Products private products;
 
-    address private store;
+    struct Claims {
+        mapping(uint256 => ModelClaims.ClaimWithParticipators) values;
+    }
 
-    function initialize() external payable onlyOwner {
-        // unused
+    Claims private claims;
+
+    address private store;
+    address private insurancePoolFactoryAddress;
+    address private insuranceTokenAddress;
+    address private insuranceRiskDataCalculatorAddress;
+
+    bytes32 private poolFactoryInitCodeHash;
+
+    function initialize(bytes memory _data) external onlyOwner {
+        (address _storeAddress) = abi.decode(_data, (address));
+
+        require(_storeAddress != address(0), "STORE_EMPTY");
+        store = _storeAddress;
+        insurancePoolFactoryAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_POOL_FACTORY");
+        insuranceTokenAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_TOKEN");
+        insuranceRiskDataCalculatorAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_RISK_DATA_CALCULATOR");
+        poolFactoryInitCodeHash = ICheckDotPoolFactory(insurancePoolFactoryAddress).getInitCodePoolHash();
     }
 
     modifier onlyOwner {
-        require(msg.sender == IOwnedProxy(address(this)).getOwner(), "FORBIDDEN");
+        require(msg.sender == IOwnedProxy(address(this)).getOwner(), "InsuranceProtocol: FORBIDDEN");
+        _;
+    }
+
+    modifier productExists(uint256 productId) {
+        require(bytes(products.values[productId].name).length != 0, "DOESNT_EXISTS");
         _;
     }
 
@@ -67,11 +92,6 @@ contract CheckDotInsuranceProtocol {
         _;
     }
 
-    function setStore(address _store) external onlyOwner {
-        require(store == address(0), "ALREADY_INITIALIZED");
-        store = _store;
-    }
-
     /**
      * @dev Returns the Store address.
      */
@@ -83,153 +103,225 @@ contract CheckDotInsuranceProtocol {
      * @dev Returns the Insurance Pool Factory address.
      */
     function getInsurancePoolFactoryAddress() external view returns (address) {
-        return _getInsurancePoolFactoryAddress();
+        return insurancePoolFactoryAddress;
     }
 
     /**
      * @dev Returns the Insurance Token address.
      */
     function getInsuranceTokenAddress() external view returns (address) {
-        return _getInsuranceTokenAddress();
+        return insuranceTokenAddress;
+    }
+
+    /**
+     * @dev Returns the Insurance Risk Data Calculator address.
+     */
+    function getInsuranceRiskDataCalculatorAddress() external view returns (address) {
+        return insuranceRiskDataCalculatorAddress;
+    }
+
+    /**
+     * calculates the CREATE2 address for a pool without making any external calls
+     */
+    function poolFor(address token) public view returns (address pair) {
+        bytes32 hashValue = keccak256(abi.encodePacked(
+                hex'ff',
+                insurancePoolFactoryAddress,
+                keccak256(abi.encodePacked(token)),
+                poolFactoryInitCodeHash
+            ));
+        assembly {
+            mstore(0, hashValue)
+            pair := mload(0)
+        }
     }
    
-    function createProduct(
-        uint256 _utcProductStartDate, 
-        uint256 _utcProductEndDate,
-        uint256 _minCoverInDays,
-        uint256 _maxCoverInDays,
-        uint256 _basePremiumInPercentPerDay,
-        string calldata _uri,
-        string calldata _title,
-        address[] calldata _coverCurrencies) external onlyOwner {
-        
-        address poolFactoryAddress = _getInsurancePoolFactoryAddress();
-        require(poolFactoryAddress != address(0), "InsuranceProtocol: UNINITIALIZED_STORE");
-        ICheckDotPoolFactory poolFactory = ICheckDotPoolFactory(poolFactoryAddress);
-        
-        uint256 id = products.counter.current();
+    function createProduct(bytes memory _data) external onlyOwner {
+        (
+            string memory _name,
+            string memory _uri,
+            uint256 _utcProductStartDate,
+            uint256 _utcProductEndDate,
+            uint256 _riskRatio,
+            uint256 _basePremiumInPercent,
+            uint256 _minCoverInDays,
+            uint256 _maxCoverInDays,
+            address[] memory _coverCurrencies,
+            uint256[] memory _minCoverCurrenciesAmounts,
+            uint256[] memory _maxCoverCurrenciesAmounts
+        ) = abi.decode(_data, (string, string, uint256, uint256, uint256, uint256, uint256, uint256, address[], uint256[], uint256[]));
 
+        require(_coverCurrencies.length > 0, "InsuranceProtocol: EMPTY_COVER_CURRENCIES");
+        require(_coverCurrencies.length == _minCoverCurrenciesAmounts.length
+            && _coverCurrencies.length == _maxCoverCurrenciesAmounts.length, "InsuranceProtocol: NOT_EQUALS_COVER_CURRENCIES_AMOUNTS");
         require(_minCoverInDays > 0, "InsuranceProtocol: MIN_COVER_UNALLOWED");
         require(_maxCoverInDays > 0, "InsuranceProtocol: MAX_COVER_UNALLOWED");
 
+        uint256 id = products.counter.current();
+
         products.values[id].id = id;
         products.values[id].URI = _uri;
-        products.values[id].title = _title;
-        products.values[id].basePremiumInPercentPerDay = _basePremiumInPercentPerDay;
-        products.values[id].cumulativePremiumInPercentPerDay = 0;
-        products.values[id].status = ModelProducts.ProductStatus.Paused;
+        products.values[id].name = _name;
+        products.values[id].riskRatio = _riskRatio;
+        products.values[id].basePremiumInPercent = _basePremiumInPercent;
+        products.values[id].status = ModelProducts.ProductStatus.Active;
         products.values[id].utcProductStartDate = _utcProductStartDate; 
         products.values[id].utcProductEndDate = _utcProductEndDate;
         products.values[id].minCoverInDays = _minCoverInDays;
         products.values[id].maxCoverInDays = _maxCoverInDays;
 
         for (uint256 i = 0; i < _coverCurrencies.length; i++) { // add coverCurrencies
-            require(poolFactory.poolExists(_coverCurrencies[i]), "InsuranceProtocol: POOL_DOESNT_EXISTS");
-            products.values[id].coverCurrencies[i] = _coverCurrencies[i];
+            ModelPools.PoolWithReserve memory pool = ICheckDotPoolFactory(insurancePoolFactoryAddress).getPool(_coverCurrencies[i]);
+
+            require(pool.poolAddress != address(0), "InsuranceProtocol: POOL_DOESNT_EXISTS");
+            products.values[id].coverCurrencies.push(_coverCurrencies[i]);
+            products.values[id].coverCurrenciesPoolAddresses.push(pool.poolAddress);
+            products.values[id].minCoverCurrenciesAmounts.push(_minCoverCurrenciesAmounts[i]);
+            products.values[id].maxCoverCurrenciesAmounts.push(_maxCoverCurrenciesAmounts[i]);
         }
         products.counter.increment();
         emit ProductCreated(id);
     }
 
-    // function buy(uint256 _productId,
-    //     uint256 _coverAmount,
-    //     address _coveredCurrency,
-    //     uint256 _durationInDays,
-    //     bool _useCDTs) external payable activatedProduct(_productId) {
-
-    //     address soulBoundTokenAddress = _getSoulBoundTokenAddress();
-    //     require(soulBoundTokenAddress != address(0), "InsuranceProtocol: UNINITIALIZED_STORE");
-    //     ICheckDotPoolFactory poolFactory = I(soulBoundTokenAddress);
-
-    //     address poolFactoryAddress = _getPoolFactoryAddress();
-    //     require(poolFactoryAddress != address(0), "InsuranceProtocol: UNINITIALIZED_STORE");
-    //     ICheckDotPoolFactory poolFactory = ICheckDotPoolFactory(poolFactoryAddress);
-
-    //     ModelProducts.Product memory product = products.values[_productId];
-    //     // todo validate Dates
-    //     require(block.timestamp.add(_durationInDays.mul(86000)) <= product.utcProductEndDate, "InsuranceProtocol: PRODUCT_EXPIRED");
-    //     require(_durationInDays >= product.minCoverInDays, "InsuranceProtocol: DURATION_TOO_SHORT");
-    //     require(_durationInDays <= product.maxCoverInDays, "InsuranceProtocol: DURATION_MAX_EXCEEDED");
-    //     require(product.coverCurrencyExists(_coveredCurrency), "InsuranceProtocol: CURRENCY_NOT_COVERED");
+    function buyCover(uint256 _productId,
+        address _coveredAddress,
+        uint256 _coveredAmount,
+        address _coverCurrency,
+        uint256 _durationInDays,
+        bool _useCDTs) external payable activatedProduct(_productId) {
+        require(msg.sender != address(0), "EMPTY_SENDER");
+        require(!Addresses.isContract(msg.sender), "FORBIDEN_CONTRACT");
+        require(_coveredAddress != address(0), "EMPTY_COVER");
+        ModelProducts.Product storage product = products.values[_productId];
         
-    //     uint256 _amountOfTokens = 
-    //     require(_amountOfTokens > 0, "amount should be > 0");
-    //     require(msg.sender != address(0), "not valid from");
-    //     require(policiesIds.length <= policiesLimit,"policies limit was reached");
-    //     require(IERC20(token).balanceOf(msg.sender) >= _amountOfTokens, "buyer not solvent");
+        require(block.timestamp.add(_durationInDays.mul(86000)) <= product.utcProductEndDate, "PRODUCT_EXPIRED");
+        require(_durationInDays >= product.minCoverInDays, "DURATION_TOO_SHORT");
+        require(_durationInDays <= product.maxCoverInDays, "DURATION_MAX_EXCEEDED");
+        require(product.coverCurrencyExists(_coverCurrency), "CURRENCY_NOT_COVERED");
+        require(ICheckDotInsuranceRiskDataCalculator(insuranceRiskDataCalculatorAddress).coverIsSolvable(product.riskRatio, _coverCurrency, _coveredAmount), "NOT_SOLVABLE_COVER");
         
-    //     // TODO: check pourcentage de la pool aloué si limit ateinte.
-    //     // require(pool <= productPoolLimit, "buyer balance reached limit");
+        uint256 totalCost = getCoverCost(product.id, _coverCurrency, _coveredAmount, _durationInDays);
 
-    //     uint256 policyId = getPolicyId();
+        if (_useCDTs) {
+            address cdtGouvernancetoken = IDAOProxy(address(this)).getGovernance();
+            uint256 cdtCost = ICheckDotInsuranceRiskDataCalculator(insuranceRiskDataCalculatorAddress).getCostInCDT(totalCost, cdtGouvernancetoken);
+            address cdtPoolAddress = poolFor(cdtGouvernancetoken);
+            uint256 checkDotFees = cdtCost.div(2);
+            uint256 newCost = cdtCost.sub(checkDotFees);
 
-    //     require(policies[policyId].premium == 0, "policy is paid and already exist");
+            TransferHelper.safeTransferFrom(cdtGouvernancetoken, msg.sender, address(this), checkDotFees); // send tokens to insuranceProtocol
+            TransferHelper.safeTransferFrom(cdtGouvernancetoken, msg.sender, cdtPoolAddress, newCost); // send tokens to CDT pool
+            ICheckDotPool(cdtPoolAddress).sync();
+        } else {
+            TransferHelper.safeTransferFrom(_coverCurrency, msg.sender, product.getCoverCurrencyPoolAddress(_coverCurrency), totalCost); // send tokens to pool
+            ICheckDotPool(product.getCoverCurrencyPoolAddress(_coverCurrency)).sync();
+        }
+        uint256 tokenId = ICheckDotERC721InsuranceToken(insuranceTokenAddress).mintInsuranceToken(product.id, _coveredAddress, _durationInDays, totalCost, _coverCurrency, _coveredAmount, product.URI);
 
-    //     totalPolicies++;
+        emit PurchasedCover(tokenId, product.id, _coveredAmount, totalCost);
+    }
 
-    //     // Transfer tokens from sender to pool contract
-    //     //require(IERC20(_token).transferFrom(msg.sender, address(pool), _amountOfTokens), "Tokens transfer failed.");
-   
-    //     policies[policyId].premium = _amountOfTokens;
-    //     policies[policyId].owner = msg.sender;
-    //     policies[policyId].utcStart = block.timestamp;
-    //     policies[policyId].utcEnd = block.timestamp.add(policyTermInSeconds);
-    //     policies[policyId].created = block.timestamp;
+    function claim(uint256 _insuranceTokenId, uint256 _claimAmount, string calldata _claimProperties) external {
+        ICheckDotERC721InsuranceToken insuranceToken = ICheckDotERC721InsuranceToken(insuranceTokenAddress);
+        
+        require(insuranceToken.ownerOf(_insuranceTokenId) == msg.sender, "FORBIDEN");
+        require(insuranceToken.coverIsAvailable(_insuranceTokenId), 'EXPIRED');
 
-    //     myPolicies[msg.sender].push(policyId);
+        ModelCovers.Cover memory cover = insuranceToken.getCover(_insuranceTokenId);
+        ModelProducts.Product storage product = products.values[cover.productId];
 
-    //     emit PaymentReceived(policyId, _amountOfTokens);
-    // }
-          
-    // function claim(uint256 _insuranceTokenId, uint256 _claimAmount) external {
-    //     require(tokenBalance() >= policies[_policyId].calculatedPayout, "Contract balance is to low");
+        claims.values[_insuranceTokenId].claim.id = _insuranceTokenId;
+        claims.values[_insuranceTokenId].claim.properties = _claimProperties;
+        claims.values[_insuranceTokenId].claim.coveredAddress = cover.coveredAddress;
+        claims.values[_insuranceTokenId].claim.poolAddress = product.getCoverCurrencyPoolAddress(cover.coveredAddress);
+        claims.values[_insuranceTokenId].claim.coveredCurrency = msg.sender;
+        claims.values[_insuranceTokenId].claim.amount = _claimAmount;
+        claims.values[_insuranceTokenId].claim.status = ModelClaims.ClaimStatus.Approbation;
 
-    //     policies[_policyId].utcPayoutDate = uint256(now);
-    //     policies[_policyId].payout = policies[_policyId].calculatedPayout;
-    //     policies[_policyId].claimProperties = _properties;
+        insuranceToken.setClaim(_insuranceTokenId, _claimAmount, _claimProperties);
 
-    //     policiesPayoutsCount++;
-    //     policiesTotalPayouts = policiesTotalPayouts.add(policies[_policyId].payout);
+        emit ClaimCreated(_insuranceTokenId, cover.productId, _claimAmount);
+    }
 
-    //     assert(IERC20(token).transfer(policies[_policyId].owner, policies[_policyId].payout));
-
-    //     emit Claim(_policyId, policies[_policyId].payout);
-    // }
+    function revokeExpiredCovers() external payable onlyOwner {
+        ICheckDotERC721InsuranceToken(insuranceTokenAddress).revokeExpiredCovers();
+    }
 
     //////////
     // Views
     //////////
 
-    // function getProductDetails() public view returns (address, address, uint256, uint256, string, string, uint256, uint256, uint256, uint256, uint256, uint256, uint256) {
-       
-    //    (uint256 basePremium, uint256 payout, uint256 loading) = IPremiumCalculator(premiumCalculator).getDetails();
-       
-    //     return (premiumCalculator, 
-    //       investorsPool, 
-    //       utcProductStartDate,
-    //       utcProductEndDate,
-    //       title,
-    //       description,
-    //       policyTermInSeconds,
-    //       basePremium,
-    //       payout,
-    //       loading,
-    //       policiesLimit,
-    //       productPoolLimit,
-    //       created
-    //       );
-    // }
+    function getCoverCost(uint256 _productId, address _coveredCurrency, uint256 _coveredAmount, uint256 _durationInDays) public view returns (uint256) {
+        ModelProducts.Product storage product = products.values[_productId];
+        
+        (
+            /** Unused Parameter **/,
+            uint256 cumulativePremiumInPercent,
+            int256 poolCapacity,
+            /** Unused Parameter **/
+        ) = getProductCoverCurrencyDetails(product.id, _coveredCurrency);
+        require(poolCapacity > int256(0) && poolCapacity > int256(_coveredAmount), "CURRENCY_CAPACITY_LIMIT_WAS_REACHED");
 
-    // function getProductStats() public view returns (bool, uint256, uint256, uint256, uint256, uint256) {
-    //     return (
-    //         paused,
-    //         IERC20(token).balanceOf(this),
-    //         policiesIds.length,
-    //         policiesTotalCalculatedPayouts,
-    //         policiesPayoutsCount,
-    //         policiesTotalPayouts
-    //       );
-    // }
+        uint256 premiumInPercent = product.basePremiumInPercent.add(cumulativePremiumInPercent);
+        uint256 costOnOneYear = _coveredAmount.mul(premiumInPercent).div(100 ether);
+        
+        return costOnOneYear.mul(_durationInDays.mul(1 ether)).div(365 ether);
+    }
+
+    function getProductDetails(uint256 _id) public view returns (ModelProducts.ProductWithDetails memory) {
+        ModelProducts.ProductWithDetails[] memory results = new ModelProducts.ProductWithDetails[](1);
+        ModelProducts.Product storage product = products.values[_id];
+        
+        results[0].id = product.id;
+        results[0].name = product.name;
+        results[0].URI = product.URI;
+        results[0].status = product.status;
+        results[0].riskRatio = product.riskRatio;
+        results[0].basePremiumInPercent = product.basePremiumInPercent;
+        results[0].utcProductStartDate = product.utcProductStartDate;
+        results[0].utcProductEndDate = product.utcProductEndDate;
+        results[0].minCoverInDays = product.minCoverInDays;
+        results[0].maxCoverInDays = product.maxCoverInDays;
+        results[0].coverCurrencies = new address[](product.coverCurrencies.length);
+        results[0].coverCurrenciesPoolAddresses = new address[](product.coverCurrencies.length);
+        results[0].minCoverCurrenciesAmounts = new uint256[](product.coverCurrencies.length);
+        results[0].maxCoverCurrenciesAmounts = new uint256[](product.coverCurrencies.length);
+        results[0].cumulativePremiumInPercents = new uint256[](product.coverCurrencies.length);
+        results[0].coverCurrenciesCoveredAmounts = new uint256[](product.coverCurrencies.length);
+        results[0].coverCurrenciesCapacities = new int256[](product.coverCurrencies.length);
+        results[0].coverCurrenciesEnabled = new bool[](product.coverCurrencies.length);
+        for (uint256 i = 0; i < product.coverCurrencies.length; i++) {
+            
+            (
+                uint256 currentCoverCurrencyCoveredAmount,
+                uint256 cumulativePremiumInPercent,
+                int256 poolCapacity,
+                // uint256 reserve unused
+            ) = getProductCoverCurrencyDetails(product.id, product.coverCurrencies[i]);
+
+            results[0].coverCurrencies[i] = product.coverCurrencies[i];
+            results[0].coverCurrenciesPoolAddresses[i] = product.coverCurrenciesPoolAddresses[i];
+            results[0].minCoverCurrenciesAmounts[i] = product.minCoverCurrenciesAmounts[i];
+            results[0].maxCoverCurrenciesAmounts[i] = product.maxCoverCurrenciesAmounts[i];
+            results[0].cumulativePremiumInPercents[i] = cumulativePremiumInPercent;
+            results[0].coverCurrenciesCoveredAmounts[i] = currentCoverCurrencyCoveredAmount;
+            results[0].coverCurrenciesCapacities[i] = poolCapacity;
+            results[0].coverCurrenciesEnabled[i] = poolCapacity > 0;
+        }
+        return results[0];
+    }
+
+    function getProductCoverCurrencyDetails(uint256 _productId, address _coverCurrency) public view returns (uint256, uint256, int256, uint256) {
+        ModelProducts.Product storage product = products.values[_productId];
+
+        uint256 poolReserve = ICheckDotPool(product.getCoverCurrencyPoolAddress(_coverCurrency)).getReserves();
+        uint256 currentCoverCurrencyCoveredAmount = ICheckDotInsuranceRiskDataCalculator(insuranceRiskDataCalculatorAddress).getActiveCoverAmountByCurrency(_coverCurrency);
+        int256 signedCapacity = int256(poolReserve).sub(int256(currentCoverCurrencyCoveredAmount));
+        uint256 capacity = signedCapacity > 0 ? uint256(signedCapacity) : 0;
+        uint256 availablePercentage = signedCapacity > 0 ? uint256(100 ether).sub(uint256(capacity).mul(100 ether).div(poolReserve)) : 0;
+        uint256 cumulativePremiumInPercent = availablePercentage.mul(3 ether).div(100 ether); // 3% addable
+        return (currentCoverCurrencyCoveredAmount, cumulativePremiumInPercent, signedCapacity, poolReserve);
+    }
 
     //////////
     // Update
@@ -281,19 +373,5 @@ contract CheckDotInsuranceProtocol {
     // function _getPoolFactory() internal view returns (ICheckDotPoolFactory storage) {
     //     return ICheckDotPoolFactory(_getPoolFactoryAddress());
     // }
-
-    /**
-     * @dev Returns the Insurance Pool Factory address.
-     */
-    function _getInsurancePoolFactoryAddress() internal view returns (address) {
-        return ICheckDotInsuranceStore(store).getAddress("INSURANCE_POOL_FACTORY");
-    }
-
-    /**
-     * @dev Returns the Insurance token address.
-     */
-    function _getInsuranceTokenAddress() internal view returns (address) {
-        return ICheckDotInsuranceStore(store).getAddress("INSURANCE_TOKEN");
-    }
 
 }

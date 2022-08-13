@@ -158,8 +158,9 @@ contract CheckDotPool is CheckDotERC20 {
     }
 
     // force reserves to match balances
-    function sync() public onlyFactory {
-        _update(IERC20(token).balanceOf(address(this)));
+    function sync() public {
+        uint256 newReserve = IERC20(token).balanceOf(address(this));
+        _update(newReserve);
     }
 
     function getReserves() public view returns (uint256) {

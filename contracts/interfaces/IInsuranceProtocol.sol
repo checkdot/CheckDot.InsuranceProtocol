@@ -18,7 +18,7 @@ interface IInsuranceProtocol {
     // Actions
     //////////
 
-    function createProduct(uint256 _utcProductStartDate, uint256 _utcProductEndDate, uint256 _minCoverInDays, uint256 _maxCoverInDays, uint256 _basePremiumInPercentPerDay, string calldata _uri, string calldata _title, string calldata _description, address[] calldata _coverCurrencies) external;
+    function createProduct(uint256 _utcProductStartDate, uint256 _utcProductEndDate, uint256 _minCoverInDays, uint256 _maxCoverInDays, uint256 _basePremiumInPercentPerDay, string calldata _uri, string calldata _title, address[] calldata _coverCurrencies) external;
     function buy(uint256 _productId, uint256 _coverAmount, address _coveredCurrency, uint256 _durationInDays, bool _useCDTs) external payable;          
     function claim(uint256 _insuranceTokenId, uint256 _claimAmount) external payable;
     function payout(uint256 _insuranceTokenId) external payable;

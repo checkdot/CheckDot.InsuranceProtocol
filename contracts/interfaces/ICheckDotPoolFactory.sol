@@ -6,6 +6,8 @@ import "../structs/ModelClaims.sol";
 
 interface ICheckDotPoolFactory {
 
+    function getInitCodePoolHash() external pure returns (bytes32);
+
     function setStore(address _store) external;
 
     function createPool(address _token) external returns (address pool);

@@ -29,13 +29,35 @@ contract CheckDotPoolFactory {
     event ClaimCreated(address token, address poolAddress, uint256 id, address claimer, uint256 amount);
     event Paidout(address token, address poolAddress, uint256 id, address claimer, uint256 amount);
 
+    bytes32 private constant INIT_CODE_POOL_HASH = keccak256(abi.encodePacked(type(CheckDotPool).creationCode));
+
     mapping(uint256 => ModelClaims.ClaimWithParticipators) private claims;
     uint256[] private claimIds;
 
     mapping(address => ModelPools.Pool) private pools;
     ModelPools.Pool[] private poolList;
 
+    mapping(address => mapping(address => uint256)) poolsContributionsTimestamps;
+
     address private store;
+    address private insuranceProtocolAddress;
+    address private insuranceTokenAddress;
+    address private insuranceRiskDataCalculatorAddress;
+
+    function initialize(bytes memory _data) external onlyOwner {
+        (address _storeAddress) = abi.decode(_data, (address));
+
+        require(_storeAddress != address(0), "STORE_EMPTY");
+        store = _storeAddress;
+        insuranceProtocolAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_PROTOCOL");
+        insuranceTokenAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_TOKEN");
+        insuranceRiskDataCalculatorAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_RISK_DATA_CALCULATOR");
+        
+        address cdtGouvernancetoken = IDAOProxy(address(this)).getGovernance(); // Creating Default CDT Pool
+        if (pools[cdtGouvernancetoken].poolAddress == address(0)) {
+            createPool(cdtGouvernancetoken);
+        }
+    }
 
     modifier poolExist(address _token) {
         require(poolExists(_token), "Entity should be initialized");
@@ -43,22 +65,17 @@ contract CheckDotPoolFactory {
     }
 
     modifier onlyOwner {
-        require(msg.sender == IOwnedProxy(address(this)).getOwner(), "FORBIDDEN");
+        require(msg.sender == IOwnedProxy(address(this)).getOwner(), "Factory: FORBIDDEN");
         _;
     }
 
     modifier onlyInsuranceProtocol {
-        require(msg.sender == _getInsuranceProtocolAddress(), "FORBIDDEN");
+        require(msg.sender == insuranceProtocolAddress, "Factory: FORBIDDEN");
         _;
     }
 
-    function initialize() external onlyOwner {
-        // unused
-    }
-
-    function setStore(address _store) external onlyOwner {
-        require(store == address(0), "ALREADY_INITIALIZED");
-        store = _store;
+    function getInitCodePoolHash() external pure returns (bytes32) {
+        return INIT_CODE_POOL_HASH;
     }
 
     /**
@@ -72,19 +89,27 @@ contract CheckDotPoolFactory {
      * @dev Returns the Insurance Protocol address.
      */
     function getInsuranceProtocolAddress() external view returns (address) {
-        return _getInsuranceProtocolAddress();
+        return insuranceProtocolAddress;
     }
 
     /**
      * @dev Returns the Insurance Token address.
      */
     function getInsuranceTokenAddress() external view returns (address) {
-        return _getInsuranceTokenAddress();
+        return insuranceTokenAddress;
     }
 
-    function createPool(address _token) external onlyOwner returns (address pool) {
+    /**
+     * @dev Returns the Insurance Risk Data Calculator address.
+     */
+    function getInsuranceRiskDataCalculatorAddress() external view returns (address) {
+        return insuranceRiskDataCalculatorAddress;
+    }
+
+    function createPool(address _token) public onlyOwner returns (address pool) {
         require(_token != address(0), 'ZERO_ADDRESS');
         require(pools[_token].poolAddress == address(0), 'ALREADY_EXISTS');
+        require(uint256(IERC20(_token).decimals()) == 18, 'ONLY_18_DECIMALS_TOKENS');
 
         bytes memory bytecode = type(CheckDotPool).creationCode;
         bytes32 salt = keccak256(abi.encodePacked(_token));
@@ -103,6 +128,9 @@ contract CheckDotPoolFactory {
         require(_amountOfTokens > 0, "amount should be > 0");
         require(_from != address(0), "not valid from");
         ModelPools.Pool memory pool = pools[_token];
+
+        require(poolsContributionsTimestamps[pool.poolAddress][_from] == 0, "ALREADY_HAVE_CONTRIBUTION");
+        poolsContributionsTimestamps[pool.poolAddress][_from] = block.timestamp;
         
         TransferHelper.safeTransferFrom(_token, _from, pool.poolAddress, _amountOfTokens); // send tokens to pool
         liquidity = ICheckDotPool(pool.poolAddress).mint(_from);
@@ -116,6 +144,10 @@ contract CheckDotPoolFactory {
         require(_to != address(0), "not valid to");
         ModelPools.Pool memory pool = pools[_token];
 
+        require(poolsContributionsTimestamps[pool.poolAddress][_to] != 0, "NO_CONTRIBUTION");
+        require(poolsContributionsTimestamps[pool.poolAddress][_to].add(uint256(86400).mul(15)) < block.timestamp, "15_DAYS_LOCKED_CONTRIBUTION");
+        poolsContributionsTimestamps[pool.poolAddress][_to] = 0;
+
         IERC20(pool.poolAddress).transferFrom(msg.sender, pool.poolAddress, _amountOfliquidityTokens); // send liquidity to pool
         amount = ICheckDotPool(pool.poolAddress).burn(_to);
 
@@ -128,7 +160,7 @@ contract CheckDotPoolFactory {
 
         claims[_id].claim.id = _id;
         claims[_id].claim.coveredCurrency = _token;
-        claims[_id].claim.pool = pool.poolAddress;
+        claims[_id].claim.poolAddress = pool.poolAddress;
         claims[_id].claim.amount = _amount;
         claims[_id].claim.coveredAddress = _claimer;
         claims[_id].claim.utcStartVote = block.timestamp;
@@ -142,10 +174,10 @@ contract CheckDotPoolFactory {
         require(claims[_id].claim.coveredAddress != address(0), "CheckDotPool: FORBIDDEN");
         require(claims[_id].claim.utcStartVote < block.timestamp
             && claims[_id].claim.utcEndVote < block.timestamp, "CheckDotPool: VOTE_INPROGRESS");
-        require(!claims[_id].claim.isFinished, "CheckDotPool: ALREADY_PAYOUT");
-        claims[_id].claim.isFinished = true;
+        require(claims[_id].claim.status == ModelClaims.ClaimStatus.Vote, "CheckDotPool: ALREADY_PAYOUT");
+        claims[_id].claim.status = ModelClaims.ClaimStatus.Paid;
 
-        ModelPools.Pool memory pool = pools[claims[_id].claim.pool];
+        ModelPools.Pool memory pool = pools[claims[_id].claim.poolAddress];
         
         if (approved = claims[_id].claim.totalApproved > claims[_id].claim.totalUnapproved) {
             ICheckDotPool(pool.poolAddress).refund(claims[_id].claim.coveredAddress, claims[_id].claim.amount);
@@ -162,9 +194,9 @@ contract CheckDotPoolFactory {
         uint256 votes = cdtGouvernancetoken.balanceOf(msg.sender) - (1**cdtGouvernancetoken.decimals());
         require(votes >= 1, "Proxy: INSUFFISANT_POWER");
         if (approve) {
-            claims[_id].claim.totalApproved += votes;
+            claims[_id].claim.totalApproved = claims[_id].claim.totalApproved.add(votes);
         } else {
-            claims[_id].claim.totalUnapproved += votes;
+            claims[_id].claim.totalUnapproved = claims[_id].claim.totalUnapproved.add(votes);
         }
         claims[_id].participators[msg.sender] = msg.sender;
     }
@@ -175,25 +207,22 @@ contract CheckDotPoolFactory {
 
     function getPools(int256 page, int256 pageSize) public view returns (ModelPools.PoolWithReserve[] memory) {
         uint256 poolLength = getPoolsLength();
-        int256 queryStartPoolIndex = int256(poolLength).sub(pageSize.mul(page)).add(pageSize).sub(1);
+        int256 queryStartPoolIndex = int256(poolLength).sub(pageSize.mul(page.add(1))).add(pageSize);
         require(queryStartPoolIndex >= 0, "Out of bounds");
         int256 queryEndPoolIndex = queryStartPoolIndex.sub(pageSize);
         if (queryEndPoolIndex < 0) {
             queryEndPoolIndex = 0;
         }
         int256 currentPoolIndex = queryStartPoolIndex;
-        require(uint256(currentPoolIndex) <= poolLength.sub(1), "Out of bounds");
+        require(uint256(currentPoolIndex) <= poolLength, "Out of bounds");
         ModelPools.PoolWithReserve[] memory results = new ModelPools.PoolWithReserve[](uint256(currentPoolIndex - queryEndPoolIndex));
         uint256 index = 0;
 
         for (currentPoolIndex; currentPoolIndex > queryEndPoolIndex; currentPoolIndex--) {
-            uint256 currentIndexAsUnsigned = uint256(currentPoolIndex);
-            if (currentIndexAsUnsigned <= poolLength.sub(1)) {
-                ModelPools.Pool memory pool = poolList[currentIndexAsUnsigned];
-                results[index].token = pool.token;
-                results[index].poolAddress = pool.poolAddress;
-                results[index].reserve = ICheckDotPool(pool.poolAddress).getReserves();
-            }
+            ModelPools.Pool memory pool = poolList[uint256(currentPoolIndex).sub(1)];
+            results[index].token = pool.token;
+            results[index].poolAddress = pool.poolAddress;
+            results[index].reserve = ICheckDotPool(pool.poolAddress).getReserves();
             index++;
         }
         return results;
@@ -250,20 +279,6 @@ contract CheckDotPoolFactory {
 
     function getClaimsLength() public view returns (uint256) {
         return claimIds.length;
-    }
-
-    /**
-     * @dev Returns the Insurance Protocol address.
-     */
-    function _getInsuranceProtocolAddress() internal view returns (address) {
-        return ICheckDotInsuranceStore(store).getAddress("INSURANCE_PROTOCOL");
-    }
-
-    /**
-     * @dev Returns the Insurance Token address.
-     */
-    function _getInsuranceTokenAddress() internal view returns (address) {
-        return ICheckDotInsuranceStore(store).getAddress("INSURANCE_TOKEN");
     }
 
 }

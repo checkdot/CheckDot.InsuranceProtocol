@@ -2,9 +2,10 @@
 pragma solidity ^0.8.9;
 
 import "../../interfaces/ICheckDotInsuranceStore.sol";
+import "../../interfaces/ICheckDotInsuranceRiskDataCalculator.sol";
 import "../../utils/SafeMath.sol";
 import "../../utils/Counters.sol";
-import "../../structs/ModelInsurances.sol";
+import "../../structs/ModelCovers.sol";
 import "../../token/ERC721.sol";
 
 contract CheckDotERC721InsuranceToken is ERC721 {
@@ -12,28 +13,52 @@ contract CheckDotERC721InsuranceToken is ERC721 {
     using SafeMath for uint256;
     using Counters for Counters.Counter;
 
-    struct InsuranceTokens {
-        mapping(uint256 => ModelInsurances.Insurance) map;
-        ModelInsurances.Insurance[] availables;
+    struct CoverTokens {
+        mapping(uint256 => ModelCovers.Cover) map;
+        ModelCovers.Cover[] availables;
         Counters.Counter counter;
     }
 
-    InsuranceTokens private tokens;
+    CoverTokens private tokens;
+
+    mapping(address => uint256) totalCoveredAmounts;
 
     address private store;
+    address private insuranceProtocolAddress;
+    address private insurancePoolFactoryAddress;
+    address private insuranceRiskDataCalculatorAddress;
 
-    function initialize() external payable onlyOwner {
-        super._initialize("CDTInsurance", "ICDT");
+    function initialize(bytes memory _data) external onlyOwner {
+        (address _storeAddress) = abi.decode(_data, (address));
+
+        require(_storeAddress != address(0), "STORE_EMPTY");
+        store = _storeAddress;
+        if (bytes(name()).length == 0) {
+            super._initialize("CDTInsurance", "ICDT");
+        }
+        insuranceProtocolAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_PROTOCOL");
+        insurancePoolFactoryAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_POOL_FACTORY");
+        insuranceRiskDataCalculatorAddress = ICheckDotInsuranceStore(store).getAddress("INSURANCE_RISK_DATA_CALCULATOR");
     }
 
     modifier onlyInsuranceProtocol {
-        require(msg.sender == _getInsuranceProtocolAddress(), "Only InsuranceProtocol is allowed");
+        require(msg.sender == insuranceProtocolAddress, "Only InsuranceProtocol is allowed");
         _;
     }
 
-    function setStore(address _store) external onlyOwner {
-        require(store == address(0), "ALREADY_INITIALIZED");
-        store = _store;
+    function mintInsuranceToken(uint256 _productId, address _coveredAddress, uint256 _insuranceTermInDays, uint256 _premiumAmount, address _coveredCurrency, uint256 _coveredAmount, string calldata _uri) external onlyInsuranceProtocol returns (uint256) {
+        return _mintInsuranceToken(_productId, _coveredAddress, _insuranceTermInDays, _premiumAmount, _coveredCurrency, _coveredAmount, _uri);
+    }
+
+    function setClaim(uint256 _tokenId, uint256 _claimAmount, string calldata _claimProperties) external onlyInsuranceProtocol {
+        require(tokens.map[_tokenId].status == ModelCovers.CoverStatus.Active, "ALREADY_IN_CLAIM");
+        tokens.map[_tokenId].claimProperties = _claimProperties;
+        tokens.map[_tokenId].claimPayout = _claimAmount;
+        tokens.map[_tokenId].status = ModelCovers.CoverStatus.ClaimApprobation;
+    }
+
+    function revokeExpiredCovers() external payable onlyInsuranceProtocol {
+        _revokeExpiredCovers();
     }
 
     /**
@@ -47,18 +72,36 @@ contract CheckDotERC721InsuranceToken is ERC721 {
      * @dev Returns the Insurance Protocol address.
      */
     function getInsuranceProtocolAddress() external view returns (address) {
-        return _getInsuranceProtocolAddress();
+        return insuranceProtocolAddress;
     }
 
     /**
      * @dev Returns the Insurance Pool Factory address.
      */
     function getInsurancePoolFactoryAddress() external view returns (address) {
-        return _getInsurancePoolFactoryAddress();
+        return insurancePoolFactoryAddress;
     }
 
-    function getCover(uint256 _id) external view returns (ModelInsurances.Insurance memory) {
-        return tokens.map[_id];
+    /**
+     * @dev Returns the Insurance Risk Data Calculator address.
+     */
+    function getInsuranceRiskDataCalculatorAddress() external view returns (address) {
+        return insuranceRiskDataCalculatorAddress;
+    }
+
+    /**
+     * @dev Returns the ModelCovers.Cover informations by tokenId.
+     */
+    function getCover(uint256 tokenId) external view returns (ModelCovers.Cover memory) {
+        return tokens.map[tokenId];
+    }
+
+    function coverIsAvailable(uint256 tokenId) external view returns (bool) {
+        return tokens.map[tokenId].utcEnd > block.timestamp;
+    }
+
+    function getTotalCoveredAmountFromCurrency(address _currency) external view returns (uint256) {
+        return totalCoveredAmounts[_currency];
     }
 
     //////////
@@ -85,14 +128,18 @@ contract CheckDotERC721InsuranceToken is ERC721 {
     // Internal virtuals
     //////////
 
-    function _revokeExpiredInsurances() internal virtual {
+    function _revokeExpiredCovers() internal virtual {
         uint256 revokableTokensCount = 0;
+        ICheckDotInsuranceRiskDataCalculator calculator = ICheckDotInsuranceRiskDataCalculator(insuranceRiskDataCalculatorAddress);
         
-        // burn expired insurances tokens
+        // burn expired covers tokens
         for (uint256 i = 0; i < tokens.availables.length; i++) {
             if (tokens.availables[i].utcEnd < block.timestamp) {
                 revokableTokensCount++;
-                tokens.availables[i].status = ModelInsurances.InsuranceStatus.Canceled;
+                tokens.availables[i].status = ModelCovers.CoverStatus.Canceled;
+
+                // update totalCoverAmount on calculator
+                calculator.subCoverAmountByCurrency(tokens.availables[i].coveredCurrency, tokens.availables[i].coveredAmount);
                 super._burn(tokens.availables[i].id);
             } else if (revokableTokensCount > 0) {
                 tokens.availables[i - revokableTokensCount] = tokens.availables[i];
@@ -106,7 +153,7 @@ contract CheckDotERC721InsuranceToken is ERC721 {
     /**
      * @dev Creates a new insurance token sent to `insured`.
      */
-    function _mintInsuranceToken(address _coveredAddress, uint256 _insuranceTermInDays, uint256 _premiumAmount, address _coveredCurrency, uint256 _coveredAmount, string calldata _uri) internal virtual {
+    function _mintInsuranceToken(uint256 _productId, address _coveredAddress, uint256 _insuranceTermInDays, uint256 _premiumAmount, address _coveredCurrency, uint256 _coveredAmount, string calldata _uri) internal virtual returns (uint256) {
         require(bytes(_uri).length > 0, "URI doesn't exists on product");
         // We cannot just use balanceOf to create the new tokenId because tokens
         // can be burned, so we need a separate counter.
@@ -115,6 +162,7 @@ contract CheckDotERC721InsuranceToken is ERC721 {
         _mint(_coveredAddress, tokenId);
 
         tokens.map[tokenId].id = tokenId;
+        tokens.map[tokenId].productId = _productId;
         tokens.map[tokenId].uri = _uri;
         tokens.map[tokenId].coveredCurrency = _coveredCurrency;
         tokens.map[tokenId].coveredAmount = _coveredAmount;
@@ -122,9 +170,14 @@ contract CheckDotERC721InsuranceToken is ERC721 {
         tokens.map[tokenId].coveredAddress = _coveredAddress;
         tokens.map[tokenId].utcStart = block.timestamp;
         tokens.map[tokenId].utcEnd = block.timestamp.add(_insuranceTermInDays.mul(86400));
-        tokens.map[tokenId].status = ModelInsurances.InsuranceStatus.Active;
+        tokens.map[tokenId].status = ModelCovers.CoverStatus.Active;
 
         tokens.counter.increment();
+
+        // update totalCoverAmount on calculator
+        ICheckDotInsuranceRiskDataCalculator(insuranceRiskDataCalculatorAddress).addCoverAmountByCurrency(_coveredCurrency, _coveredAmount);
+
+        return tokenId;
     }
 
     /**
@@ -150,20 +203,6 @@ contract CheckDotERC721InsuranceToken is ERC721 {
 
     function _insuranceTokenURI(uint256 tokenId) private view returns (string memory) {
         return string(abi.encodePacked("ipfs://", tokens.map[tokenId].uri));
-    }
-
-    /**
-     * @dev Returns the Insurance Protocol address.
-     */
-    function _getInsuranceProtocolAddress() internal view returns (address) {
-        return ICheckDotInsuranceStore(store).getAddress("INSURANCE_PROTOCOL");
-    }
-
-    /**
-     * @dev Returns the poolsFactory address.
-     */
-    function _getInsurancePoolFactoryAddress() internal view returns (address) {
-        return ICheckDotInsuranceStore(store).getAddress("INSURANCE_POOL_FACTORY");
     }
 
 }

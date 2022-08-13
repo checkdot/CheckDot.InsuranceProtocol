@@ -5,15 +5,24 @@ library ModelClaims {
 
     struct Claim {
         uint256 id;
+        string  properties;
         address coveredAddress;
-        address pool;
+        address poolAddress;
         address coveredCurrency;
         uint256 amount;
         uint256 utcStartVote;
         uint256 utcEndVote;
         uint256 totalApproved;
         uint256 totalUnapproved;
-        bool isFinished;
+        ClaimStatus status;
+    }
+
+    enum ClaimStatus {
+        NotSet,           // 0 |
+        Approbation,      // 1 |
+        Vote,             // 2 |
+        Paid,             // 3 |
+        Canceled          // 4 |
     }
 
     struct ClaimWithParticipators {

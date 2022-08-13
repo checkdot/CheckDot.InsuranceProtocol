@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.9;
 
-import "../../../../../CheckDot.DAOProxyContract/contracts/Proxy.sol";
+import "../../../../../CheckDot.DAOProxyContract/contracts/ProxyDAO.sol";
 
-contract UpgradableCheckDotERC721InsuranceToken is Proxy {
-    constructor(address _cdtGouvernanceAddress) Proxy(_cdtGouvernanceAddress) { }
+contract UpgradableCheckDotERC721InsuranceToken is ProxyDAO {
+    constructor(address _cdtGouvernanceAddress) ProxyDAO(_cdtGouvernanceAddress) { }
 }
