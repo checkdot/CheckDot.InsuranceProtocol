@@ -18,6 +18,7 @@ import "../../utils/Owned.sol";
 import "../../utils/Addresses.sol";
 import "../../structs/ModelProducts.sol";
 import "../../structs/ModelPools.sol";
+import "../../structs/ModelCoverCurrencies.sol";
 
 import "../../../../../CheckDot.DAOProxyContract/contracts/interfaces/IOwnedProxy.sol";
 
@@ -28,6 +29,7 @@ contract CheckDotInsuranceProtocol {
     using Counters for Counters.Counter;
     using ModelProducts for ModelProducts.Product;
     using ModelProducts for ModelProducts.ProductWithDetails;
+    using ModelCoverCurrencies for ModelCoverCurrencies.CoverCurrency;
 
     event PurchasedCover(uint256 coverId, uint256 productId, uint256 coveredAmount, uint256 premiumCost);
     event ProductUpdated(uint256 id,
@@ -39,6 +41,7 @@ contract CheckDotInsuranceProtocol {
         uint16 minCoverInDays,
         uint16 maxCoverInDays);
     event ProductCreated(uint256 id);
+    event CoverCurrencyAdded(address tokenAddress);
 
     string private constant STORE = "STORE";
     string private constant INSURANCE_TOKEN = "INSURANCE_TOKEN";
@@ -61,6 +64,8 @@ contract CheckDotInsuranceProtocol {
     Products private products;
 
     bytes32 private poolFactoryInitCodeHash;
+
+    mapping(address => ModelCoverCurrencies.CoverCurrency) private coverCurrencies;
 
     // END V1
 
@@ -175,18 +180,29 @@ contract CheckDotInsuranceProtocol {
         products.values[id].utcProductEndDate = _utcProductEndDate;
         products.values[id].minCoverInDays = _minCoverInDays;
         products.values[id].maxCoverInDays = _maxCoverInDays;
-
-        // for (uint256 i = 0; i < _coverCurrencies.length; i++) { // add coverCurrencies
-        //     ModelPools.PoolWithReserve memory pool = ICheckDotPoolFactory(protocolAddresses[INSURANCE_POOL_FACTORY]).getPool(_coverCurrencies[i]);
-
-        //     require(pool.poolAddress != address(0), "InsuranceProtocol: POOL_DOESNT_EXISTS");
-        //     products.values[id].coverCurrencies.push(_coverCurrencies[i]);
-        //     products.values[id].coverCurrenciesPoolAddresses.push(pool.poolAddress);
-        //     products.values[id].minCoverCurrenciesAmounts.push(_minCoverCurrenciesAmounts[i]);
-        //     products.values[id].maxCoverCurrenciesAmounts.push(_maxCoverCurrenciesAmounts[i]);
-        // }
         products.counter.increment();
         emit ProductCreated(id);
+    }
+
+    function addCoverCurrency(bytes memory _data) external onlyOwner {
+        (
+            address _tokenAddress,
+            uint256 _minCoverAmount,
+            uint256 _maxCoverAmount
+        ) = abi.decode(_data, (address, uint256, uint256));
+        require(_minCoverAmount > 0, "InsuranceProtocol: MIN_COVER_AMOUNT_UNALLOWED");
+        require(_maxCoverAmount > _minCoverAmount, "InsuranceProtocol: MAX_COVER_AMOUNT_UNALLOWED");
+
+        ModelPools.PoolWithReserve memory pool = ICheckDotPoolFactory(protocolAddresses[INSURANCE_POOL_FACTORY]).getPool(_tokenAddress);
+
+        require(pool.token == _tokenAddress, "InsuranceProtocol: POOL_DOESNT_EXISTS");
+
+        coverCurrencies[_tokenAddress].tokenAddress = _tokenAddress;
+        coverCurrencies[_tokenAddress].poolAddress = pool.poolAddress;
+        coverCurrencies[_tokenAddress].minCoverAmount = _minCoverAmount;
+        coverCurrencies[_tokenAddress].maxCoverAmount = _maxCoverAmount;        
+
+        emit CoverCurrencyAdded(_tokenAddress);
     }
 
     function buyCover(uint256 _productId,
@@ -216,7 +232,9 @@ contract CheckDotInsuranceProtocol {
         require(block.timestamp.add(_durationInDays.mul(86400)) <= product.utcProductEndDate, "PRODUCT_EXPIRED");
         require(_durationInDays >= product.minCoverInDays, "DURATION_TOO_SHORT");
         require(_durationInDays <= product.maxCoverInDays, "DURATION_MAX_EXCEEDED");
-        // require(product.coverCurrencyExists(_coverCurrency), "CURRENCY_NOT_COVERED");
+        require(coverCurrencies[_coverCurrency].tokenAddress == _coverCurrency, "NOT_VALID_CURRENCY");
+        require(coverCurrencies[_coverCurrency].minCoverAmount < _coveredAmount, "MIN_CURRENCY_NOT_COVERED");
+        require(coverCurrencies[_coverCurrency].maxCoverAmount > _coveredAmount, "MAX_CURRENCY_NOT_COVERED");
         require(ICheckDotInsuranceRiskDataCalculator(protocolAddresses[INSURANCE_RISK_DATA_CALCULATOR]).coverIsSolvable(product.riskRatio, _coverCurrency, _coveredAmount), "NOT_SOLVABLE_COVER");
         return true;
     }
@@ -285,31 +303,6 @@ contract CheckDotInsuranceProtocol {
         results[0].utcProductEndDate = product.utcProductEndDate;
         results[0].minCoverInDays = product.minCoverInDays;
         results[0].maxCoverInDays = product.maxCoverInDays;
-        // results[0].coverCurrencies = new address[](product.coverCurrencies.length);
-        // results[0].coverCurrenciesPoolAddresses = new address[](product.coverCurrencies.length);
-        // results[0].minCoverCurrenciesAmounts = new uint256[](product.coverCurrencies.length);
-        // results[0].maxCoverCurrenciesAmounts = new uint256[](product.coverCurrencies.length);
-        // results[0].cumulativePremiumInPercents = new uint256[](product.coverCurrencies.length);
-        // results[0].coverCurrenciesCoveredAmounts = new uint256[](product.coverCurrencies.length);
-        // results[0].coverCurrenciesCapacities = new int256[](product.coverCurrencies.length);
-        // results[0].coverCurrenciesEnabled = new bool[](product.coverCurrencies.length);
-        // for (uint256 i = 0; i < product.coverCurrencies.length; i++) {
-        //     (
-        //         uint256 currentCoverCurrencyCoveredAmount,
-        //         uint256 cumulativePremiumInPercent,
-        //         int256 poolCapacity,
-        //         // uint256 reserve unused
-        //     ) = getProductCoverCurrencyDetails(product.id, product.coverCurrencies[i]);
-
-        //     results[0].coverCurrencies[i] = product.coverCurrencies[i];
-        //     results[0].coverCurrenciesPoolAddresses[i] = product.coverCurrenciesPoolAddresses[i];
-        //     results[0].minCoverCurrenciesAmounts[i] = product.minCoverCurrenciesAmounts[i];
-        //     results[0].maxCoverCurrenciesAmounts[i] = product.maxCoverCurrenciesAmounts[i];
-        //     results[0].cumulativePremiumInPercents[i] = cumulativePremiumInPercent;
-        //     results[0].coverCurrenciesCoveredAmounts[i] = currentCoverCurrencyCoveredAmount;
-        //     results[0].coverCurrenciesCapacities[i] = poolCapacity;
-        //     // results[0].coverCurrenciesEnabled[i] = poolCapacity > 0;
-        // }
         return results[0];
     }
 
@@ -321,6 +314,10 @@ contract CheckDotInsuranceProtocol {
         uint256 availablePercentage = signedCapacity > 0 ? uint256(100 ether).sub(uint256(capacity).mul(100 ether).div(poolReserve)) : 0;
         uint256 cumulativePremiumInPercent = availablePercentage.mul(3 ether).div(100 ether); // 3% addable
         return (currentCoverCurrencyCoveredAmount, cumulativePremiumInPercent, signedCapacity, poolReserve);
+    }
+
+    function getCoverCurrencyLimits(address _coverCurrency) public view returns (uint256, uint256) {
+        return (coverCurrencies[_coverCurrency].minCoverAmount, coverCurrencies[_coverCurrency].maxCoverAmount);
     }
 
     //////////

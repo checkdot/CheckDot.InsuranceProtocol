@@ -31,21 +31,4 @@ library ModelCovers {
         Canceled          // 4 |
     }
 
-    // modifier insuranceValidForClaim(bytes32 _policyId) {
-    //     require(policies[_policyId].owner != address(0), "Owner is not valid");       
-    //     require(policies[_policyId].payout == 0, "Payout already done");
-    //     require(policies[_policyId].status != PolicyStatus.ClaimProcedure, "Payout already in progress");
-    //     require(policies[_policyId].calculatedPayout != 0, "Policy is not set");
-    //     require(policies[_policyId].utcEnd > block.timestamp, "Policy has ended");
-    //     _;
-    // }
-
-    // modifier insuranceValidForPayout(bytes32 _policyId) {
-    //     require(policies[_policyId].owner != address(0), "Owner is not valid");       
-    //     require(policies[_policyId].payout == 0, "Payout already done");
-    //     require(policies[_policyId].status == PolicyStatus.ClaimProcedure, "Payout is not set");
-    //     require(policies[_policyId].calculatedPayout != 0, "Policy is not set");
-    //     _;
-    // }
-
 }
