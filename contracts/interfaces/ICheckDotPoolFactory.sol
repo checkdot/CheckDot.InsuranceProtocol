@@ -16,11 +16,15 @@ interface ICheckDotPoolFactory {
 
     function uncontribute(address _token, address _to, uint256 _amountOfliquidityTokens) external;
 
-    function claim(address _token, uint256 _id, uint256 _amount, address _claimer) external returns (bool);
+    function mintInsuranceProtocolFees(address _token, address _from) external;
 
-    function payout(uint256 _id) external returns (bool approved);
+    function claim(uint256 _insuranceTokenId, uint256 _claimAmount, string calldata _claimProperties) external returns (uint256);
+    
+    function teamApproveClaim(uint256 claimId, bool approved, string calldata additionnalProperties) external;
 
-    function vote(uint256 _id, bool approve) external;
+    function voteForClaim(uint256 claimId, bool approved) external;
+
+    function payoutClaim(uint256 claimId) external;
 
     //////////
     // Views
@@ -35,12 +39,6 @@ interface ICheckDotPoolFactory {
     function poolExists(address _token) external view returns(bool);
 
     function poolAddress(address _token) external view returns(address);
-
-    function getClaim(uint256 _id) external view returns (ModelClaims.Claim memory);
-
-    function getClaims(int256 page, int256 pageSize) external view returns (ModelClaims.Claim[] memory);
-
-    function getClaimsLength() external view returns (uint256);
 
     function getStore() external view returns (address);
 }

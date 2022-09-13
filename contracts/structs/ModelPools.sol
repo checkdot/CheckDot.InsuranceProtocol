@@ -12,6 +12,7 @@ library ModelPools {
         address token;
         address poolAddress;
         uint256 reserve;
+        uint256 reserveInUSD;
     }
 
 }

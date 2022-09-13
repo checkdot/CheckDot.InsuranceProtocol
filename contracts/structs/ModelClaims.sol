@@ -5,16 +5,27 @@ library ModelClaims {
 
     struct Claim {
         uint256 id;
+        uint256 coverId;
+        uint256 productId;
         string  properties;
+        string  additionnalProperties;
         address coveredAddress;
         address poolAddress;
         address coveredCurrency;
         uint256 amount;
+        uint256 rewardsInCDT;
+        uint256 alreadyRewardedAmount;
         uint256 utcStartVote;
         uint256 utcEndVote;
         uint256 totalApproved;
         uint256 totalUnapproved;
         ClaimStatus status;
+    }
+
+    struct Vote {
+        address voter;
+        uint256 totalApproved;
+        uint256 totalUnapproved;
     }
 
     enum ClaimStatus {
@@ -27,7 +38,7 @@ library ModelClaims {
 
     struct ClaimWithParticipators {
         Claim claim;
-        mapping(address => address) participators;
+        mapping(address => Vote) participators;
     }
 
 }

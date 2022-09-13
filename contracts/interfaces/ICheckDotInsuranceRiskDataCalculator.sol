@@ -2,21 +2,31 @@
 pragma solidity ^0.8.9;
 
 /**
- * @title ICheckDotInsuranceStore
+ * @title ICheckDotInsuranceRiskDataCalculator
  * @author Jeremy Guyet (@jguyet)
- * @dev See {CheckDotInsuranceStore}.
+ * @dev See {CheckDotInsuranceRiskDataCalculator}.
  */
 interface ICheckDotInsuranceRiskDataCalculator {
 
-    function addCoverAmountByCurrency(address _coverCurrency, uint256 _amount) external;
-
-    function subCoverAmountByCurrency(address _coverCurrency, uint256 _amount) external;
+    function initialize(bytes memory _data) external;
 
     function coverIsSolvable(uint256 _productRiskRatio, address _coverCurrency, uint256 _newCoverAmount) external view returns (bool);
 
-    function getActiveCoverAmountByCurrency(address _coverCurrency) external view returns (uint256);
+    function getSolvabilityRatio() external view returns (uint256);
 
-    function getCostInCDT(uint256 _costInUSD, address _token) external view returns (uint256);
+    function getSCRPercent() external view returns (uint256);
+
+    function getSCRSize() external view returns (uint256);
+
+    function getSolvability() external view returns(uint256, uint256, uint256);
+
+    function getClaimPrice(address _coveredCurrency, uint256 _claimAmount) external view returns (uint256);
+
+    function convertCost(uint256 _costIn, address _in, address _out) external view returns (uint256);
+
+    function getTokenPriceInUSD(address _token) external view returns (uint256);
+
+    function getTokenPriceOut(address _in, address _out) external view returns (uint256);
 
     function getStoreAddress() external view returns (address);
 

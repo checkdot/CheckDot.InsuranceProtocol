@@ -9,6 +9,8 @@ import "../../utils/Counters.sol";
 contract CheckDotERC20 is IERC20 {
     using SafeMath for uint;
 
+    uint256 private constant VERSION = 1;
+
     mapping (address => uint256) private _balances;
     mapping (address => mapping (address => uint256)) private _allowances;
 
@@ -20,6 +22,10 @@ contract CheckDotERC20 is IERC20 {
     constructor() {
         _name = "CheckDot LPs";
         _symbol = "Cdt-LP";
+    }
+
+    function getVersion() external pure returns (uint256) {
+        return VERSION;
     }
 
     function name() public view virtual returns (string memory) {

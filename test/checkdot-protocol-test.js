@@ -34,6 +34,9 @@ const CheckDotInsuranceStore = artifacts.require('CheckDotInsuranceStore');
 const CheckDotERC721InsuranceToken = artifacts.require('CheckDotERC721InsuranceToken');
 const CheckDotInsuranceRiskDataCalculator = artifacts.require('CheckDotInsuranceRiskDataCalculator');
 
+// TEST
+const DexContract = artifacts.require('DexContract');
+
 
 contract('CheckDotInsurance', async (accounts) => {
   let usdtTokenAddress;
@@ -44,6 +47,8 @@ contract('CheckDotInsurance', async (accounts) => {
   let baseInsuranceStore;
   let baseInsuranceToken;
   let baseInsuranceRiskDataCalculator;
+
+  let dexContract;
 
   let insurancePoolFactory;
   let insuranceProtocol;
@@ -97,6 +102,9 @@ contract('CheckDotInsurance', async (accounts) => {
     console.log('baseInsuranceToken     address:', baseInsuranceToken.address);
     console.log('baseInsuranceRiskDC    address:', baseInsuranceRiskDataCalculator.address);
 
+    dexContract = await DexContract.new({ from: owner });
+    console.log('dexContract            address:', dexContract.address);
+
     // Proxies
     console.log("--------------------------------------------------------------------------");
     proxyPoolFactory = await UpgradableCheckDotPoolFactoryContract.new(governanceTokenAddress, { from: owner });
@@ -116,15 +124,11 @@ contract('CheckDotInsurance', async (accounts) => {
     await timeHelper.revertToSnapShot(snapShotId);
   });
 
-  let setProxyDAOImplementation = async (functionalContract, proxy, storeAddress) => {
+  let setProxyDAOImplementation = async (functionalContract, proxy, _data) => {
     
     const currentBlockTimeStamp = ((await web3.eth.getBlock("latest")).timestamp) + 1000;
     const startUTC = `${currentBlockTimeStamp.toFixed(0)}`;
     const endUTC = `${(currentBlockTimeStamp + 86400).toFixed(0)}`;
-
-    const _data = web3.eth.abi.encodeParameters(['address'], [
-      storeAddress
-    ]);
 
     await proxy.upgrade(functionalContract.address, _data, startUTC, endUTC, { from: owner });
 
@@ -155,11 +159,7 @@ contract('CheckDotInsurance', async (accounts) => {
     return true;
   }
 
-  let setStandardProxyImplementation = async (functionalContract, proxy, storeAddress) => {
-    const _data = web3.eth.abi.encodeParameters(['address'], [
-      storeAddress
-    ]);
-
+  let setStandardProxyImplementation = async (functionalContract, proxy, _data) => {
     await proxy.upgrade(functionalContract.address, _data, { from: owner });
     
     const implementation = await proxy.getImplementation();
@@ -178,7 +178,10 @@ contract('CheckDotInsurance', async (accounts) => {
   }
 
   it('Implementations of the Store should be applied', async () => {
-    assert.equal(await setProxyDAOImplementation(baseInsuranceStore, proxyInsuranceStore, proxyInsuranceStore.address),
+    const _data = web3.eth.abi.encodeParameters(['address'], [
+      proxyInsuranceStore.address
+    ]);
+    assert.equal(await setProxyDAOImplementation(baseInsuranceStore, proxyInsuranceStore, _data),
       true, 'set Implementation InsuranceStore: Should be equals');
     insuranceStore = await CheckDotInsuranceStore.at(proxyInsuranceStore.address);
   });
@@ -192,26 +195,37 @@ contract('CheckDotInsurance', async (accounts) => {
 
   it('Implementations on proxies should be applied', async () => {
 
-    assert.equal(await setProxyDAOImplementation(basePoolFactory, proxyPoolFactory, proxyInsuranceStore.address),
+    const _dataInsuranceStore = web3.eth.abi.encodeParameters(['address'], [
+      proxyInsuranceStore.address
+    ]);
+
+    assert.equal(await setProxyDAOImplementation(basePoolFactory, proxyPoolFactory, _dataInsuranceStore),
       true, 'set Implementation PoolFactory: Should be equals');
     insurancePoolFactory = await CheckDotPoolFactory.at(proxyPoolFactory.address);
 
-    assert.equal(await setProxyDAOImplementation(baseInsuranceProtocol, proxyInsuranceProtocol, proxyInsuranceStore.address),
+    assert.equal(await setProxyDAOImplementation(baseInsuranceProtocol, proxyInsuranceProtocol, _dataInsuranceStore),
       true, 'set Implementation InsuranceProtocol: Should be equals');
     insuranceProtocol = await CheckDotInsuranceProtocol.at(proxyInsuranceProtocol.address);
 
-    assert.equal(await setProxyDAOImplementation(baseInsuranceToken, proxyInsuranceToken, proxyInsuranceStore.address),
+    assert.equal(await setProxyDAOImplementation(baseInsuranceToken, proxyInsuranceToken, _dataInsuranceStore),
       true, 'set Implementation InsuranceToken: Should be equals');
     insuranceToken = await CheckDotERC721InsuranceToken.at(proxyInsuranceToken.address);
 
-    assert.equal(await setStandardProxyImplementation(baseInsuranceRiskDataCalculator, proxyInsuranceRiskDataCalculator, proxyInsuranceStore.address),
+    const _dataInsuranceStoreWithDex = web3.eth.abi.encodeParameters(['address', 'address', 'address', 'address'], [
+      proxyInsuranceStore.address,
+      dexContract.address,
+      "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", // BUSD
+      "0x55d398326f99059fF775485246999027B3197955" // USDT
+    ]);
+
+    assert.equal(await setStandardProxyImplementation(baseInsuranceRiskDataCalculator, proxyInsuranceRiskDataCalculator, _dataInsuranceStoreWithDex),
       true, 'set Implementation InsuranceRiskDataCalculator: Should be equals');
     insuranceRiskDataCalculator = await CheckDotInsuranceRiskDataCalculator.at(proxyInsuranceRiskDataCalculator.address);
   });
 
   // it('Check', async () => {
-  //   insuranceRiskDataCalculator.getERC20PriceInUSD('')
-  //   poolFor
+
+  //   console.log((await insuranceRiskDataCalculator.getTokenPriceInUSD("0x79deC2de93f9B16DD12Bc6277b33b0c81f4D74C7")).toString());
   // })
 
   it('Check initialization of Contracts', async () => {
@@ -264,6 +278,9 @@ contract('CheckDotInsurance', async (accounts) => {
 
     usdtPoolAddress = poolWithReserve.poolAddress;
 
+    console.log('reserve', poolWithReserve.reserve.toString());
+    console.log('reserveUSD', poolWithReserve.reserveInUSD.toString());
+
     assert.equal(poolWithReserve.token, usdtTokenAddress, 'poolWithReserve.token should be equals');
     assert.equal(poolWithReserve.reserve.toString(), 0, 'Reserve Should be zero');
   });
@@ -308,6 +325,9 @@ contract('CheckDotInsurance', async (accounts) => {
     }, 'InsurancePoolFactory should return the correct ContributionAdded event.');
 
     let poolWithReserve = await insurancePoolFactory.getPool(usdtTokenAddress);
+
+    console.log('reserve2', poolWithReserve.reserve.toString());
+    console.log('reserveUSD2', poolWithReserve.reserveInUSD.toString());
 
     assert.equal(poolWithReserve.token, usdtTokenAddress, 'poolWithReserve.token should be equals');
     assert.equal(fromWei(toBN(poolWithReserve.reserve).add(MINIMUM_LIQUIDITY_LOCKED), 'ether'), 1100, 'Reserve Should be 1100 USDT');
@@ -426,7 +446,7 @@ contract('CheckDotInsurance', async (accounts) => {
     assert.equal((Number(solvability[0].toString()) / (10**18)) <= 3, true, `SolvabilityRatio overflow`);
   });
 
-  
+
 
   // TODO verify pool yield
   // TODO create claim

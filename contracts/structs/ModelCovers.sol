@@ -16,7 +16,9 @@ library ModelCovers {
         CoverStatus status;
 
         // claim
+        uint256 claimId;
         string  claimProperties;
+        string  claimAdditionnalProperties;
         uint256 claimPayout;
         uint256 claimUtcPayoutDate;
     }

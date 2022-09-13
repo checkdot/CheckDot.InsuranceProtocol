@@ -10,15 +10,16 @@ import "../structs/ModelCovers.sol";
  */
 interface ICheckDotERC721InsuranceToken {
 
-    function initialize() external;
+    function initialize(bytes memory _data) external;
 
-    function setup(address _store) external;
-
+    // covers
     function mintInsuranceToken(uint256 _productId, address _coveredAddress, uint256 _insuranceTermInDays, uint256 _premiumAmount, address _coveredCurrency, uint256 _coveredAmount, string calldata _uri) external payable returns (uint256);
-
-    function setClaim(uint256 _tokenId, uint256 _claimAmount, string calldata _claimProperties) external;
-
     function revokeExpiredCovers() external payable;
+
+    // claim
+    function claim(uint256 _tokenId, uint256 _claimAmount, string calldata _claimProperties) external;
+    function teamApproveClaim(uint256 _tokenId, uint256 _claimId, bool approved, string calldata _claimAdditionnalProperties) external;
+    function payoutClaim(uint256 _tokenId) external;
 
     function getStoreAddress() external view returns (address);
 
@@ -33,7 +34,7 @@ interface ICheckDotERC721InsuranceToken {
     function getTotalCoveredAmountFromCurrency(address _currency) external view returns (uint256);
 
     //////////
-    // Views
+    // ERC721 Views
     //////////
 
     function supportsInterface(bytes4 interfaceId) external view returns (bool);
