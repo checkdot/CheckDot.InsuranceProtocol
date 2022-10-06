@@ -5,14 +5,8 @@ library ModelPools {
 
     struct Pool {
         address token;
-        address poolAddress;
-    }
-
-    struct PoolWithReserve {
-        address token;
-        address poolAddress;
+        uint256 totalSupply; // LP token
         uint256 reserve;
-        uint256 reserveInUSD;
     }
 
 }

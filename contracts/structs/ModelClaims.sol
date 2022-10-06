@@ -4,22 +4,25 @@ pragma solidity ^0.8.9;
 library ModelClaims {
 
     struct Claim {
-        uint256 id;
-        uint256 coverId;
-        uint256 productId;
-        string  properties;
-        string  additionnalProperties;
-        address coveredAddress;
-        address poolAddress;
-        address coveredCurrency;
-        uint256 amount;
-        uint256 rewardsInCDT;
-        uint256 alreadyRewardedAmount;
-        uint256 utcStartVote;
-        uint256 utcEndVote;
-        uint256 totalApproved;
-        uint256 totalUnapproved;
-        ClaimStatus status;
+        mapping(string => address) a;
+        mapping(string => uint256) n;
+        mapping(string => string) s;
+        // uint256 id;
+        // uint256 coverId;
+        // uint256 productId;
+        // string  properties;
+        // string  additionnalProperties;
+        // address coveredAddress;
+        // address poolAddress;
+        // address coveredCurrency;
+        // uint256 amount;
+        // uint256 rewardsInCDT;
+        // uint256 alreadyRewardedAmount;
+        // uint256 utcStartVote;
+        // uint256 utcEndVote;
+        // uint256 totalApproved;
+        // uint256 totalUnapproved;
+        // ClaimStatus status;
     }
 
     struct Vote {

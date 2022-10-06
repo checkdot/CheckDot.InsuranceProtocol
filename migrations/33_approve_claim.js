@@ -1,6 +1,5 @@
 const UpgradableCheckDotERC721InsuranceToken = artifacts.require('UpgradableCheckDotERC721InsuranceToken');
 const CheckDotERC721InsuranceToken = artifacts.require('CheckDotERC721InsuranceToken');
-const UpgradableCheckDotInsuranceStore = artifacts.require('UpgradableCheckDotInsuranceStore');
 
 module.exports = async function (deployer, network, accounts) {
     if (network == "development") return;

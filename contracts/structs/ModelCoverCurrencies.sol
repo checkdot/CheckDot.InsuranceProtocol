@@ -5,7 +5,6 @@ library ModelCoverCurrencies {
 
     struct CoverCurrency {
         address tokenAddress;
-        address poolAddress;
         uint256 minCoverAmount;
         uint256 maxCoverAmount;
     }

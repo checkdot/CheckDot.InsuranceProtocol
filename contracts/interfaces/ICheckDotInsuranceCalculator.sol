@@ -6,11 +6,13 @@ pragma solidity ^0.8.9;
  * @author Jeremy Guyet (@jguyet)
  * @dev See {CheckDotInsuranceRiskDataCalculator}.
  */
-interface ICheckDotInsuranceRiskDataCalculator {
+interface ICheckDotInsuranceCalculator {
 
     function initialize(bytes memory _data) external;
 
-    function coverIsSolvable(uint256 _productRiskRatio, address _coverCurrency, uint256 _newCoverAmount) external view returns (bool);
+    function getTotalCoveredAmountFromCurrency(address _currency) external view returns (uint256);
+
+    function coverIsSolvable(uint256 /*_productId*/, uint256 _productRiskRatio, address _coverCurrency, uint256 _newCoverAmount) external view returns (bool);
 
     function getSolvabilityRatio() external view returns (uint256);
 

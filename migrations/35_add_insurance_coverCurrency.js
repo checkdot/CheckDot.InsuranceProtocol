@@ -13,5 +13,20 @@ module.exports = async function (deployer, network, accounts) {
     const protocol = await CheckDotInsuranceProtocol.at(proxy.address);
     console.log("Proxy", proxy.address);
 
-    console.log(await protocol.revokeExpiredCovers());
+
+    // const _tokenAddress = "0x55d398326f99059ff775485246999027b3197955";// USDT
+    // const _minCoverAmount = web3.utils.toWei(`100`, 'ether');
+    // const _maxCoverAmount = web3.utils.toWei(`50000`, 'ether');
+
+    const _tokenAddress = "0xe9e7cea3dedca5984780bafc599bd69add087d56";// BUSD
+    const _minCoverAmount = web3.utils.toWei(`100`, 'ether');
+    const _maxCoverAmount = web3.utils.toWei(`50000`, 'ether');
+
+    const _data = web3.eth.abi.encodeParameters(['address', 'uint256', 'uint256'], [
+        _tokenAddress,
+        _minCoverAmount,
+        _maxCoverAmount
+    ]);
+
+    await protocol.addCoverCurrency(_data);
 };

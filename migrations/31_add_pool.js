@@ -1,5 +1,3 @@
-const UpgradableCheckDotInsuranceStore = artifacts.require('UpgradableCheckDotInsuranceStore');
-const CheckDotInsuranceStore = artifacts.require('CheckDotInsuranceStore');
 const CheckDotPoolFactory = artifacts.require('CheckDotPoolFactory');
 
 const UpgradableCheckDotInsuranceProtocol = artifacts.require('UpgradableCheckDotInsuranceProtocol');
@@ -14,5 +12,6 @@ module.exports = async function (deployer, network, accounts) {
     const factory = await CheckDotPoolFactory.at(proxy.address);
     console.log("Proxy", proxy.address);
 
-    await factory.createPool("0x55d398326f99059ff775485246999027b3197955");
+    await factory.createPool("0x55d398326f99059ff775485246999027b3197955");// USDT
+    // await factory.createPool("0xe9e7cea3dedca5984780bafc599bd69add087d56");// BUSD
 };

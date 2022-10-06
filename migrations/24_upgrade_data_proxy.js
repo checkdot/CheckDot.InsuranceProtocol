@@ -1,10 +1,17 @@
-const UpgradableCheckDotInsuranceRiskDataCalculator = artifacts.require('UpgradableCheckDotInsuranceRiskDataCalculator');
 const CheckDotInsuranceRiskDataCalculator = artifacts.require('CheckDotInsuranceRiskDataCalculator');
-const UpgradableCheckDotInsuranceStore = artifacts.require('UpgradableCheckDotInsuranceStore');
+
+const UpgradableCheckDotInsuranceProtocol = artifacts.require('UpgradableCheckDotInsuranceProtocol');
+const UpgradableCheckDotPoolFactory = artifacts.require('UpgradableCheckDotPoolFactory');
+const UpgradableCheckDotERC721InsuranceToken = artifacts.require('UpgradableCheckDotERC721InsuranceToken');
+const UpgradableCheckDotInsuranceRiskDataCalculator = artifacts.require('UpgradableCheckDotInsuranceRiskDataCalculator');
 
 module.exports = async function (deployer, network, accounts) {
     if (network == "development") return;
-    const store = await UpgradableCheckDotInsuranceStore.deployed();
+    const insuranceProtocolProxy = await UpgradableCheckDotInsuranceProtocol.deployed();
+    const insurancePoolFactoryProxy = await UpgradableCheckDotPoolFactory.deployed();
+    const insuranceTokenProxy = await UpgradableCheckDotERC721InsuranceToken.deployed();
+    const insuranceRiskDataCalculatorProxy = await UpgradableCheckDotInsuranceRiskDataCalculator.deployed();
+
     const proxy = await UpgradableCheckDotInsuranceRiskDataCalculator.deployed();
     const indexFunctional = await CheckDotInsuranceRiskDataCalculator.deployed();
 
@@ -13,8 +20,10 @@ module.exports = async function (deployer, network, accounts) {
 
     const CDTGouvernanceTokenAddress = "0x0cbd6fadcf8096cc9a43d90b45f65826102e3ece";
 
-    const _dataInsuranceStoreWithDex = web3.eth.abi.encodeParameters(['address', 'address', 'address', 'address', 'address'], [
-        store.address,
+    const _dataInsuranceStoreWithDex = web3.eth.abi.encodeParameters(['address', 'address', 'address', 'address', 'address', 'address', 'address'], [
+        insuranceProtocolProxy.address,
+        insurancePoolFactoryProxy.address,
+        insuranceTokenProxy.address,
         CDTGouvernanceTokenAddress,
         "0x10ED43C718714eb63d5aA57B78B54704E256024E", // Pcswp v2
         "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", // BUSD

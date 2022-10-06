@@ -23,7 +23,7 @@ module.exports = {
       skipDryRun: true
     },
     bsc: { // truffle deploy --network bsc
-      provider: () => new HDWalletProvider(secret.MMENOMIC, `https://bsc-dataseed1.binance.org`),
+      provider: () => new HDWalletProvider(secret.MMENOMIC, `https://bsc-dataseed4.binance.org`),
       network_id: 56,
       confirmations: 10,
       timeoutBlocks: 200,
