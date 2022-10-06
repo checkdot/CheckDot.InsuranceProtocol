@@ -3,6 +3,6 @@ pragma solidity ^0.8.9;
 
 import "../../../../../CheckDot.DAOProxyContract/contracts/ProxyDAO.sol";
 
-contract UpgradableCheckDotPoolFactory is ProxyDAO {
+contract UpgradableCheckDotInsuranceCovers is ProxyDAO {
     constructor(address _cdtGouvernanceAddress) ProxyDAO(_cdtGouvernanceAddress) { }
 }
