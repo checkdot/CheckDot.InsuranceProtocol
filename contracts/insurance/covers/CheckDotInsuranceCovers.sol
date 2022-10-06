@@ -63,7 +63,7 @@ struct Vote {
     uint256 totalUnapproved;
 }
 
-contract CheckDotPoolFactory is ERC721 {
+contract CheckDotInsuranceCovers is ERC721 {
     using SafeMath for uint;
     using SignedSafeMath for int256;
     using Counters for Counters.Counter;

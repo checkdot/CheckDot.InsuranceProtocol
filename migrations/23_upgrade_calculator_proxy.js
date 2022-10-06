@@ -12,7 +12,7 @@ module.exports = async function (deployer, network, accounts) {
     console.log("Proxy", proxy.address);
     console.log("CheckDotInsuranceRiskDataCalculator", indexFunctional.address);
 
-    const _dataInsuranceStoreWithDex = web3.eth.abi.encodeParameters(['address', 'address', 'address', 'address', 'address', 'address', 'address'], [
+    const _dataInsuranceStoreWithDex = web3.eth.abi.encodeParameters(['address', 'address', 'address', 'address', 'address', 'address'], [
         (await UpgradableCheckDotInsuranceProducts.deployed()).address,
         (await UpgradableCheckDotInsuranceCovers.deployed()).address,
         "0x0cbd6fadcf8096cc9a43d90b45f65826102e3ece", // CDTGouvernanceTokenAddress
