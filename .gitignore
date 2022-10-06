@@ -7,4 +7,7 @@ secret.js
 cache/
 artifacts/
 .openzeppelin/
-contracts/insurance/calc/CheckDotInsuranceRiskDataCalculator.sol
+contracts/insurance/calc/CheckDotInsuranceCalculator.sol
+archive-contracts-v0.0.1/
+archive-contracts-v0.0.2/
+archive-contracts-v0.0.3/
