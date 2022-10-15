@@ -10,6 +10,7 @@ module.exports = async function (deployer, network, accounts) {
     const insuranceCovers = await CheckDotInsuranceCovers.at(proxy.address);
     console.log("Proxy", proxy.address);
 
-    await insuranceCovers.createPool("0x55d398326f99059ff775485246999027b3197955");// USDT
-    // await insuranceCovers.createPool("0xe9e7cea3dedca5984780bafc599bd69add087d56");// BUSD
+    // await insuranceCovers.createPool("0x55d398326f99059ff775485246999027b3197955");// USDT
+    //await insuranceCovers.createPool("0xe9e7cea3dedca5984780bafc599bd69add087d56");// BUSD
+    await insuranceCovers.createPool("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d");// USDC
 };

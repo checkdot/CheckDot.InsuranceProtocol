@@ -8,33 +8,18 @@
   "scripts": {
     "lint": "npx prettier --write ./contracts",
 
-    "verifyPool": "truffle run verify CheckDotPoolFactory --network bsc",
-    "verifyPoolProxy": "truffle run verify UpgradableCheckDotPoolFactory --network bsc",
+    "verifyCovers": "truffle run verify CheckDotInsuranceCovers --network bsc",
+    "verifyCoversProxy": "truffle run verify UpgradableCheckDotInsuranceCovers --network bsc",
 
-    "verifyProtocol": "truffle run verify CheckDotInsuranceProtocol --network bsc",
-    "verifyProtocolProxy": "truffle run verify UpgradableCheckDotInsuranceProtocol --network bsc",
+    "verifyProducts": "truffle run verify CheckDotInsuranceProducts --network bsc",
+    "verifyProductsProxy": "truffle run verify UpgradableCheckDotInsuranceProducts --network bsc",
 
-    "verifyStore": "truffle run verify CheckDotInsuranceStore --network bsc",
-    "verifyStoreProxy": "truffle run verify UpgradableCheckDotInsuranceStore --network bsc",
+    "verifyCalculator": "truffle run verify CheckDotInsuranceCalculator --network bsc",
+    "verifyCalculatorProxy": "truffle run verify UpgradableCheckDotInsuranceCalculator --network bsc",
 
-    "verifyToken": "truffle run verify CheckDotERC721InsuranceToken --network bsc",
-    "verifyTokenProxy": "truffle run verify UpgradableCheckDotERC721InsuranceToken --network bsc",
-
-    "deployPool": "truffle migrate -f 1 --to 1",
-    "deployPoolProxy": "truffle migrate -f 10 --to 10",
-    "upgradePoolProxy": "truffle migrate -f 20 --to 20",
-
-    "deployProtocol": "truffle migrate -f 2 --to 2",
-    "deployProtocolProxy": "truffle migrate -f 11 --to 11",
-    "upgradeProtocolProxy": "truffle migrate -f 21 --to 21",
-
-    "deployStore": "truffle migrate -f 3 --to 3",
-    "deployStoreProxy": "truffle migrate -f 12 --to 12",
-    "upgradeStoreProxy": "truffle migrate -f 22 --to 22",
-
-    "deployToken": "truffle migrate -f 4 --to 4",
-    "deployTokenProxy": "truffle migrate -f 13 --to 13",
-    "upgradeTokenProxy": "truffle migrate -f 23 --to 23"
+    "deployCovers": "truffle migrate -f 11 --to 11",
+    "deployCoversProxy": "truffle migrate -f 1 --to 1",
+    "upgradeCoversProxy": "truffle migrate -f 21 --to 21"
   },
   "author": "CheckDot Team",
   "license": "MIT",

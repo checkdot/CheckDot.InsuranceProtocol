@@ -20,7 +20,6 @@ struct CoverInformations {
     uint256 premiumAmount;
     uint256 status;
     // claim slots
-    uint256 claimId;
     string  claimProperties;
     string  claimAdditionnalProperties;
     uint256 claimAmount;
@@ -28,6 +27,10 @@ struct CoverInformations {
     uint256 claimUtcPayoutDate;
     uint256 claimRewardsInCDT;
     uint256 claimAlreadyRewardedAmount;
+    uint256 claimUtcStartVote;
+    uint256 claimUtcEndVote;
+    uint256 claimTotalApproved;
+    uint256 claimTotalUnapproved;
     // others slots
 }
 
@@ -71,6 +74,7 @@ interface ICheckDotInsuranceCovers {
     function getCoverIdsByOwner(address _owner) external view returns (uint256[] memory);
     function getCoversByOwner(address _owner) external view returns (CoverInformations[] memory);
     function getCover(uint256 tokenId) external view returns (CoverInformations memory);
+    function getLightCoverInformation(uint256 tokenId) external view returns (address, uint256, uint256);
     function getCoversCount() external view returns (uint256);
 
     //////////

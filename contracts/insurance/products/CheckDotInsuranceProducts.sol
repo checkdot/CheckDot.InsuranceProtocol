@@ -44,14 +44,6 @@ contract CheckDotInsuranceProducts {
     using Counters for Counters.Counter;
 
     event PurchasedCover(uint256 coverId, uint256 productId, uint256 coveredAmount, uint256 premiumCost);
-    event ProductUpdated(uint256 id,
-        string name,
-        string riskType,
-        uint256 premiumInPercentPerDay,
-        uint256 utcProductStartDate,
-        uint256 utcProductEndDate,
-        uint16 minCoverInDays,
-        uint16 maxCoverInDays);
     event ProductCreated(uint256 id);
 
     string private constant INSURANCE_COVERS = "INSURANCE_COVERS";
@@ -133,8 +125,7 @@ contract CheckDotInsuranceProducts {
         require(_minCoverInDays > 0, "MIN_COVER_UNALLOWED");
         require(_maxCoverInDays > 0, "MAX_COVER_UNALLOWED");
         require(_id <= products.counter.current(), "NOT_VALID_PRODUCT_ID");
-
-        uint256 id = _id < products.counter.current() ? _id : products.counter.current();
+        uint256 id = _id;
 
         products.data[id].n["id"] = id;
         products.data[id].s["riskType"] = _riskType;
@@ -145,7 +136,7 @@ contract CheckDotInsuranceProducts {
         products.data[id].n["status"] = uint256(ProductStatus.Active);
         products.data[id].n["minCoverInDays"] = _minCoverInDays;
         products.data[id].n["maxCoverInDays"] = _maxCoverInDays;
-        if (id >= products.counter.current()) {
+        if (id == products.counter.current()) {
             products.counter.increment();
         }
         emit ProductCreated(id);
@@ -174,7 +165,7 @@ contract CheckDotInsuranceProducts {
         uint256 _durationInDays,
         address _payIn) public view returns (bool) {
         require(_coveredAddress != address(0), "EMPTY_COVER");
-        require(block.timestamp.add(_durationInDays.mul(86400)) <= products.data[_productId].n["utcProductEndDate"], "PRODUCT_EXPIRED");
+        require(products.data[_productId].n["status"] == uint256(ProductStatus.Active), "PRODUCT_IS_DISABLED");
         require(_durationInDays >= products.data[_productId].n["minCoverInDays"], "DURATION_TOO_SHORT");
         require(_durationInDays <= products.data[_productId].n["maxCoverInDays"], "DURATION_MAX_EXCEEDED");
         require(ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPool(_payIn).token != address(0), "PAY_POOL_DOESNT_EXIST");
@@ -192,6 +183,9 @@ contract CheckDotInsuranceProducts {
         uint256 payCost = ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).convertCost(totalCostInCoverCurrency, _coverCurrency, _payIn);
         uint256 fees = payCost.div(100).mul(2); // 2%
 
+        if (_payIn == protocolAddresses[CHECKDOT_TOKEN]) {
+            fees = payCost.div(2); // 50% when is paid in CDT
+        }
         require(IERC20(_payIn).balanceOf(msg.sender) >= payCost, "INSUFISANT_BALANCE");
         require(IERC20(_payIn).allowance(msg.sender, address(this)) >= payCost, "INSUFISANT_ALLOWANCE");
 
@@ -230,6 +224,7 @@ contract CheckDotInsuranceProducts {
         Object storage product = products.data[_id];
         
         results[0].id = product.n["id"];
+        results[0].riskType = product.s["riskType"];
         results[0].name = product.s["name"];
         results[0].uri = product.s["uri"];
         results[0].status = product.n["status"];

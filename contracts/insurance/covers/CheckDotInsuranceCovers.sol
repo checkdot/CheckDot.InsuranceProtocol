@@ -31,7 +31,6 @@ struct CoverInformations {
     uint256 premiumAmount;
     uint256 status;
     // claim slots
-    uint256 claimId;
     string  claimProperties;
     string  claimAdditionnalProperties;
     uint256 claimAmount;
@@ -39,6 +38,10 @@ struct CoverInformations {
     uint256 claimUtcPayoutDate;
     uint256 claimRewardsInCDT;
     uint256 claimAlreadyRewardedAmount;
+    uint256 claimUtcStartVote;
+    uint256 claimUtcEndVote;
+    uint256 claimTotalApproved;
+    uint256 claimTotalUnapproved;
     // others slots
 }
 
@@ -48,7 +51,7 @@ enum CoverStatus {
     ClaimApprobation, // 2 |
     ClaimVote,        // 3 |
     ClaimPaid,        // 4 |
-    Canceled          // 4 |
+    Canceled          // 5 |
 }
 
 struct PoolInformations {
@@ -75,9 +78,9 @@ contract CheckDotInsuranceCovers is ERC721 {
     event ClaimCreated(uint256 id, uint256 productId, uint256 amount);    
     event ClaimUpdated(uint256 id, uint256 productId);
     
-    string  private constant INSURANCE_PRODUCTS = "INSURANCE_PRODUCTS";
-    string  private constant INSURANCE_CALCULATOR = "INSURANCE_CALCULATOR";
-    string  private constant CHECKDOT_TOKEN = "CHECKDOT_TOKEN";
+    string private constant INSURANCE_PRODUCTS = "INSURANCE_PRODUCTS";
+    string private constant INSURANCE_CALCULATOR = "INSURANCE_CALCULATOR";
+    string private constant CHECKDOT_TOKEN = "CHECKDOT_TOKEN";
 
     bool internal locked;
 
@@ -106,6 +109,10 @@ contract CheckDotInsuranceCovers is ERC721 {
 
     mapping(uint256 => mapping(address => Object)) private claimsParticipators;
 
+    // Vars
+
+    Object private vars;
+
     // END V1
 
     function initialize(bytes memory _data) external onlyOwner {
@@ -121,6 +128,8 @@ contract CheckDotInsuranceCovers is ERC721 {
         if (pools[protocolAddresses[CHECKDOT_TOKEN]].a["token"] == address(0)) { // Creating Default CDT Pool if doesn't exists
             createPool(protocolAddresses[CHECKDOT_TOKEN]);
         }
+        vars.n["LOCK_DURATION"] = uint256(1); // To be managed via DAO in the future.
+        vars.n["VOTE_DURATION"] = uint256(86400).mul(2); // To be managed via DAO in the future.
     }
 
     modifier poolExist(address _token) {
@@ -164,7 +173,6 @@ contract CheckDotInsuranceCovers is ERC721 {
     function createPool(address _token) public onlyOwner {
         require(_token != address(0), 'ZERO_ADDRESS');
         require(pools[_token].a["token"] == address(0), 'ALREADY_EXISTS');
-        require(uint256(IERC20(_token).decimals()) == 18, 'ONLY_18_DECIMALS_TOKENS');
 
         pools[_token].a["token"] = _token;
         poolList.push(_token);
@@ -183,10 +191,13 @@ contract CheckDotInsuranceCovers is ERC721 {
 
     function uncontribute(address _token, address _to, uint256 _amountOfliquidityTokens) external noReentrant poolExist(_token) {
         require(_amountOfliquidityTokens > 0, "INVALID_AMOUNT");
-        require(_balances[_token][msg.sender] >= _amountOfliquidityTokens, "BALANCE_EXCEEDED");
-        require(_holdTimes[_token][msg.sender].add(uint256(86400).mul(15)) < block.timestamp, "15_DAYS_LOCKED_CONTRIBUTION");
+        require(_holdTimes[_token][msg.sender].add(vars.n["LOCK_DURATION"]) < block.timestamp, "15_DAYS_LOCKED_CONTRIBUTION");
 
-        uint256 amount = _unContribute(_token, msg.sender, _to, _amountOfliquidityTokens); // remove contribution
+        uint256 amountOfLP = _amountOfliquidityTokens;
+        if (_amountOfliquidityTokens > _balances[_token][msg.sender]) {
+            amountOfLP = _balances[_token][msg.sender];
+        }
+        uint256 amount = _unContribute(_token, msg.sender, _to, amountOfLP); // remove contribution
         emit ContributionRemoved(_to, _token, amount, _amountOfliquidityTokens);
     }
 
@@ -230,8 +241,8 @@ contract CheckDotInsuranceCovers is ERC721 {
         require(cover.n["status"] == uint256(CoverStatus.ClaimApprobation), "CLAIM_APPROBATION_FINISHED");
         if (_approved) {
             cover.n["status"] = uint256(CoverStatus.ClaimVote);
-            cover.n["utcStartVote"] = block.timestamp; // now
-            cover.n["utcEndVote"] = block.timestamp.add(uint256(86400).mul(2)); // in two days
+            cover.n["claimUtcStartVote"] = block.timestamp; // now
+            cover.n["claimUtcEndVote"] = block.timestamp.add(vars.n["VOTE_DURATION"]); // in two days
         } else {
             cover.n["status"] = uint256(CoverStatus.Canceled);
         }
@@ -245,23 +256,23 @@ contract CheckDotInsuranceCovers is ERC721 {
         require(claimsParticipators[_insuranceTokenId][msg.sender].a["voter"] == address(0), "ALREADY_VOTED");
         require(cover.a["coveredAddress"] != msg.sender, "ACCESS_DENIED");
         require(cover.n["status"] == uint256(CoverStatus.ClaimVote), "VOTE_FINISHED");
-        require(block.timestamp < cover.n["utcEndVote"], "VOTE_ENDED");
+        require(block.timestamp < cover.n["claimUtcEndVote"], "VOTE_ENDED");
 
         IERC20 token = IERC20(protocolAddresses[CHECKDOT_TOKEN]);
         uint256 votes = token.balanceOf(msg.sender).div(10 ** token.decimals());
         require(votes >= 1, "Proxy: INSUFFISANT_POWER");
 
         if (_approved) {
-            cover.n["totalApproved"] = cover.n["totalApproved"].add(votes);
-            claimsParticipators[_insuranceTokenId][msg.sender].n["totalApproved"] = votes;
+            cover.n["claimTotalApproved"] = cover.n["claimTotalApproved"].add(votes);
+            claimsParticipators[_insuranceTokenId][msg.sender].n["TotalApproved"] = votes;
         } else {
-            cover.n["totalUnapproved"] = cover.n["totalUnapproved"].add(votes);
+            cover.n["claimTotalUnapproved"] = cover.n["claimTotalUnapproved"].add(votes);
             claimsParticipators[_insuranceTokenId][msg.sender].n["totalUnapproved"] = votes;
         }
         claimsParticipators[_insuranceTokenId][msg.sender].a["voter"] = msg.sender;
 
-        uint256 voteDuration = cover.n["utcEndVote"].sub(cover.n["utcStartVote"]);
-        uint256 timeSinceStartVote = block.timestamp.sub(cover.n["utcStartVote"]);
+        uint256 voteDuration = cover.n["claimUtcEndVote"].sub(cover.n["claimUtcStartVote"]);
+        uint256 timeSinceStartVote = block.timestamp.sub(cover.n["claimUtcStartVote"]);
         uint256 rewards = timeSinceStartVote.mul(cover.n["claimRewardsInCDT"]).div(voteDuration).sub(cover.n["claimAlreadyRewardedAmount"]);
 
         if (token.balanceOf(address(this)) >= rewards) {
@@ -275,8 +286,8 @@ contract CheckDotInsuranceCovers is ERC721 {
     function getNextVoteRewards(uint256 _insuranceTokenId) public view returns (uint256) {
         Object storage cover = tokens.data[_insuranceTokenId];
 
-        uint256 voteDuration = cover.n["utcEndVote"].sub(cover.n["utcStartVote"]);
-        uint256 timeSinceStartVote = block.timestamp.sub(cover.n["utcStartVote"]);
+        uint256 voteDuration = cover.n["claimUtcEndVote"].sub(cover.n["claimUtcStartVote"]);
+        uint256 timeSinceStartVote = block.timestamp.sub(cover.n["claimUtcStartVote"]);
         uint256 rewards = timeSinceStartVote.mul(cover.n["claimRewardsInCDT"]).div(voteDuration).sub(cover.n["claimAlreadyRewardedAmount"]);
 
         if (IERC20(protocolAddresses[CHECKDOT_TOKEN]).balanceOf(address(this)) >= rewards) {
@@ -289,13 +300,14 @@ contract CheckDotInsuranceCovers is ERC721 {
         Object storage cover = tokens.data[_insuranceTokenId];
 
         require(cover.n["status"] == uint256(CoverStatus.ClaimVote), "CLAIM_FINISHED");
-        require(block.timestamp > cover.n["utcEndVote"], "VOTE_INPROGRESS");
-        require(cover.n["totalApproved"] > cover.n["totalUnapproved"], "CLAIM_REJECTED");
+        require(block.timestamp > cover.n["claimUtcEndVote"], "VOTE_INPROGRESS");
+        require(cover.n["claimTotalApproved"] > cover.n["claimTotalUnapproved"], "CLAIM_REJECTED");
         require(pools[cover.a["coveredCurrency"]].n["reserve"] >= cover.n["claimAmount"], "UNAVAILABLE_FUNDS_AMOUNT");
         cover.n["status"] = uint256(CoverStatus.ClaimPaid);
         cover.n["claimPayout"] = cover.n["claimAmount"];
         cover.n["claimUtcPayoutDate"] = block.timestamp;
         TransferHelper.safeTransfer(cover.a["coveredCurrency"], cover.a["coveredAddress"], cover.n["claimAmount"]);
+        _sync(cover.a["coveredCurrency"]); // synchronize the coverCurrency Pool with the new reserve
         emit ClaimUpdated(cover.n["id"], cover.n["productId"]);
     }
 
@@ -341,7 +353,7 @@ contract CheckDotInsuranceCovers is ERC721 {
 
     function getPoolContributionInformations(address _token, address _staker) external view returns (uint256, bool, uint256, uint256) {
         uint256 lastContributionTime = _holdTimes[_token][_staker];
-        bool canUnContribute = lastContributionTime.add(uint256(86400).mul(15)) < block.timestamp;
+        bool canUnContribute = lastContributionTime.add(vars.n["LOCK_DURATION"]) < block.timestamp;
         uint256 stakerBalanceLP = _balances[_token][_staker];
         uint256 totalBalanceOfToken = IERC20(_token).balanceOf(address(this));
         uint256 totalSupply = pools[_token].n["totalSupply"];
@@ -402,27 +414,34 @@ contract CheckDotInsuranceCovers is ERC721 {
     }
 
     function getCover(uint256 tokenId) public view returns (CoverInformations memory) {
-        CoverInformations[] memory results = new CoverInformations[](1);
+        CoverInformations[] memory r = new CoverInformations[](1);
 
-        results[0].id = tokens.data[tokenId].n["id"];
-        results[0].productId = tokens.data[tokenId].n["productId"];
-        results[0].uri = tokens.data[tokenId].s["uri"];
-        results[0].coveredAddress = tokens.data[tokenId].a["coveredAddress"];
-        results[0].utcStart = tokens.data[tokenId].n["utcStart"];
-        results[0].utcEnd = tokens.data[tokenId].n["utcEnd"];
-        results[0].coveredAmount = tokens.data[tokenId].n["coveredAmount"];
-        results[0].coveredCurrency = tokens.data[tokenId].a["coveredCurrency"];
-        results[0].premiumAmount = tokens.data[tokenId].n["premiumAmount"];
-        results[0].status = tokens.data[tokenId].n["status"];
-        results[0].claimId = tokens.data[tokenId].n["claimId"];
-        results[0].claimProperties = tokens.data[tokenId].s["claimProperties"];
-        results[0].claimAdditionnalProperties = tokens.data[tokenId].s["claimAdditionnalProperties"];
-        results[0].claimAmount = tokens.data[tokenId].n["claimAmount"];
-        results[0].claimPayout = tokens.data[tokenId].n["claimPayout"];
-        results[0].claimUtcPayoutDate = tokens.data[tokenId].n["claimUtcPayoutDate"];
-        results[0].claimRewardsInCDT = tokens.data[tokenId].n["claimRewardsInCDT"];
-        results[0].claimAlreadyRewardedAmount = tokens.data[tokenId].n["claimAlreadyRewardedAmount"];
-        return results[0];
+        r[0].id = tokens.data[tokenId].n["id"];
+        r[0].productId = tokens.data[tokenId].n["productId"];
+        r[0].uri = tokens.data[tokenId].s["uri"];
+        r[0].coveredAddress = tokens.data[tokenId].a["coveredAddress"];
+        r[0].utcStart = tokens.data[tokenId].n["utcStart"];
+        r[0].utcEnd = tokens.data[tokenId].n["utcEnd"];
+        r[0].coveredAmount = tokens.data[tokenId].n["coveredAmount"];
+        r[0].coveredCurrency = tokens.data[tokenId].a["coveredCurrency"];
+        r[0].premiumAmount = tokens.data[tokenId].n["premiumAmount"];
+        r[0].status = tokens.data[tokenId].n["status"];
+        r[0].claimProperties = tokens.data[tokenId].s["claimProperties"];
+        r[0].claimAdditionnalProperties = tokens.data[tokenId].s["claimAdditionnalProperties"];
+        r[0].claimAmount = tokens.data[tokenId].n["claimAmount"];
+        r[0].claimPayout = tokens.data[tokenId].n["claimPayout"];
+        r[0].claimUtcPayoutDate = tokens.data[tokenId].n["claimUtcPayoutDate"];
+        r[0].claimRewardsInCDT = tokens.data[tokenId].n["claimRewardsInCDT"];
+        r[0].claimAlreadyRewardedAmount = tokens.data[tokenId].n["claimAlreadyRewardedAmount"];
+        r[0].claimUtcStartVote = tokens.data[tokenId].n["claimUtcStartVote"];
+        r[0].claimUtcEndVote = tokens.data[tokenId].n["claimUtcEndVote"];
+        r[0].claimTotalApproved = tokens.data[tokenId].n["claimTotalApproved"];
+        r[0].claimTotalUnapproved = tokens.data[tokenId].n["claimTotalUnapproved"];
+        return r[0];
+    }
+
+    function getLightCoverInformation(uint256 tokenId) public view returns (address, uint256, uint256) {
+        return (tokens.data[tokenId].a["coveredCurrency"], tokens.data[tokenId].n["coveredAmount"], tokens.data[tokenId].n["status"]);
     }
 
     function getCoversCount() public view returns (uint256) {
@@ -430,12 +449,11 @@ contract CheckDotInsuranceCovers is ERC721 {
     }
 
     function getVoteOf(uint256 _insuranceTokenId, address _addr) public view returns (Vote memory) {
-        Vote[] memory results = new Vote[](1);
-
-        results[0].voter = claimsParticipators[_insuranceTokenId][_addr].a["voter"];
-        results[0].totalApproved = claimsParticipators[_insuranceTokenId][_addr].n["totalApproved"];
-        results[0].totalUnapproved = claimsParticipators[_insuranceTokenId][_addr].n["totalUnapproved"];
-        return results[0];
+        return Vote(
+            claimsParticipators[_insuranceTokenId][_addr].a["voter"],
+            claimsParticipators[_insuranceTokenId][_addr].n["totalApproved"],
+            claimsParticipators[_insuranceTokenId][_addr].n["totalUnapproved"]
+        );
     }
 
     ////////
@@ -462,15 +480,13 @@ contract CheckDotInsuranceCovers is ERC721 {
 
     function _unContribute(address token, address from, address to, uint256 liquidityAmount) internal returns (uint256 amount) {
         uint256 balance = IERC20(token).balanceOf(address(this));
-        require(liquidityAmount >= _balances[token][from], 'INSUFFICIENT_LIQUIDITY_OWNED');
-        uint256 liquidity = liquidityAmount;
+        require(liquidityAmount <= _balances[token][from], 'INSUFFICIENT_LIQUIDITY_OWNED');
 
         uint256 _totalSupply = pools[token].n["totalSupply"]; // gas savings, must be defined here since totalSupply can update in _mintFee
-        amount = liquidity.mul(balance) / _totalSupply; // using balances ensures pro-rata distribution
+        amount = liquidityAmount.mul(balance) / _totalSupply; // using balances ensures pro-rata distribution
         require(amount > 0, 'INSUFFICIENT_LIQUIDITY_BURNED');
-        pools[token].n["totalSupply"] = pools[token].n["totalSupply"].sub(liquidity);
-        _balances[token][from] = _balances[token][from].sub(liquidity); // burn lp
-        _holdTimes[token][from] = 0;
+        pools[token].n["totalSupply"] = pools[token].n["totalSupply"].sub(liquidityAmount);
+        _balances[token][from] = _balances[token][from].sub(liquidityAmount); // burn lp
         TransferHelper.safeTransfer(token, to, amount);
         _sync(token);
     }
@@ -481,18 +497,6 @@ contract CheckDotInsuranceCovers is ERC721 {
 
     function _insuranceTokenURI(uint256 tokenId) private view returns (string memory) {
         return string(abi.encodePacked("ipfs://", tokens.data[tokenId].s["uri"]));
-    }
-
-    /**
-     * @dev See {IERC721-_beforeTokenTransfer}.
-     */
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 tokenId
-    ) internal virtual override {
-        require(from == address(0) || to == address(0), "Soul Bound Token are not exchangeable");
-        super._beforeTokenTransfer(from, to, tokenId);
     }
 
 }
