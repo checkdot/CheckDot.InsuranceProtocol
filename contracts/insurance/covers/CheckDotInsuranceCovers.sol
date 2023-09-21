@@ -10,7 +10,7 @@ import "../../interfaces/IDAOProxy.sol";
 import "../../interfaces/IOracle.sol";
 import "../../token/ERC721.sol";
 
-import "../../../../../CheckDot.DAOProxyContract/contracts/interfaces/IOwnedProxy.sol";
+import "../../interfaces/IOwnedProxy.sol";
 
 struct Object {
     mapping(string => address) a;
@@ -128,7 +128,7 @@ contract CheckDotInsuranceCovers is ERC721 {
         if (pools[protocolAddresses[CHECKDOT_TOKEN]].a["token"] == address(0)) { // Creating Default CDT Pool if doesn't exists
             createPool(protocolAddresses[CHECKDOT_TOKEN]);
         }
-        vars.n["LOCK_DURATION"] = uint256(86400).mul(15); // To be managed via DAO in the future.
+        vars.n["LOCK_DURATION"] = uint256(86400).mul(1); // To be managed via DAO in the future.
         vars.n["VOTE_DURATION"] = uint256(86400).mul(2); // To be managed via DAO in the future.
     }
 

@@ -8,7 +8,7 @@ import "../../interfaces/IDex.sol";
 import "../../utils/SafeMath.sol";
 import "../../utils/SignedSafeMath.sol";
 
-import "../../../../../CheckDot.DAOProxyContract/contracts/interfaces/IOwnedProxy.sol";
+import "../../interfaces/IOwnedProxy.sol";
 
 contract CheckDotInsuranceCalculator is IOracle {
     using SafeMath for uint;
@@ -103,10 +103,10 @@ contract CheckDotInsuranceCalculator is IOracle {
         uint256 totalActiveCoveredAmount = getTotalCoveredAmountFromCurrency(_coverCurrency);
         PoolInformations memory pool = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPool(_coverCurrency);
 
-        if (pool.reserve < totalActiveCoveredAmount) {
+        if (pool.reserve.mul(ratio).div(1 ether) < totalActiveCoveredAmount) {
             return 0;
         }
-        return (pool.reserve.sub(totalActiveCoveredAmount).mul(ratio).div(1 ether));
+        return (pool.reserve.mul(ratio).div(1 ether).sub(totalActiveCoveredAmount));
     }
 
     function getTotalSolvableCoverAmountFromProductRiskRatio(uint256 _productRiskRatio) public view returns (uint256) {
