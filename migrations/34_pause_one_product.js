@@ -1,16 +1,20 @@
 const CheckDotInsuranceCovers = artifacts.require('CheckDotInsuranceCovers');
+const CheckDotInsuranceProducts = artifacts.require('CheckDotInsuranceProducts');
 
 const UpgradableCheckDotInsuranceProducts = artifacts.require('UpgradableCheckDotInsuranceProducts');
 const UpgradableCheckDotInsuranceCovers = artifacts.require('UpgradableCheckDotInsuranceCovers');
 const UpgradableCheckDotInsuranceCalculator = artifacts.require('UpgradableCheckDotInsuranceCalculator');
 
+
 module.exports = async function (deployer, network, accounts) {
     if (network == "development") return;
-    const proxy = await UpgradableCheckDotInsuranceCovers.deployed();
-    const insuranceCovers = await CheckDotInsuranceCovers.at(proxy.address);
+    const proxy = await UpgradableCheckDotInsuranceProducts.deployed();
+    const insuranceProducts = await CheckDotInsuranceProducts.at(proxy.address);
     console.log("Proxy", proxy.address);
 
-    // await insuranceCovers.createPool("0x55d398326f99059ff775485246999027b3197955");// USDT
-    // await insuranceCovers.createPool("0xe9e7cea3dedca5984780bafc599bd69add087d56");// BUSD
-    await insuranceCovers.createPool("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d");// USDC
+    ///////////////////////
+    const _id = 7;
+    ///////////////////////
+
+    await insuranceProducts.pauseProduct(_id);
 };

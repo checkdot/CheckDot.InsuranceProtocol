@@ -10,7 +10,7 @@ import "../../interfaces/IDAOProxy.sol";
 import "../../interfaces/IOracle.sol";
 import "../../token/ERC721.sol";
 
-import "../../interfaces/IOwnedProxy.sol";
+import "../../DaoProxy/interfaces/IOwnedProxy.sol";
 
 struct Object {
     mapping(string => address) a;
@@ -128,8 +128,8 @@ contract CheckDotInsuranceCovers is ERC721 {
         if (pools[protocolAddresses[CHECKDOT_TOKEN]].a["token"] == address(0)) { // Creating Default CDT Pool if doesn't exists
             createPool(protocolAddresses[CHECKDOT_TOKEN]);
         }
-        vars.n["LOCK_DURATION"] = uint256(86400).mul(1); // To be managed via DAO in the future.
-        vars.n["VOTE_DURATION"] = uint256(86400).mul(2); // To be managed via DAO in the future.
+        vars.n["LOCK_DURATION"] = uint256(86400).mul(15); // To be managed via DAO in the future.
+        vars.n["VOTE_DURATION"] = uint256(86400).mul(30); // To be managed via DAO in the future.
     }
 
     modifier poolExist(address _token) {
@@ -235,10 +235,10 @@ contract CheckDotInsuranceCovers is ERC721 {
         return cover.n["id"];
     }
 
-    function teamApproveClaim(uint256 _insuranceTokenId, bool _approved, string calldata _additionnalProperties) external {
+    function teamApproveClaim(uint256 _insuranceTokenId, bool _approved, string calldata _additionnalProperties) external onlyOwner {
         Object storage cover = tokens.data[_insuranceTokenId];
 
-        require(cover.n["status"] == uint256(CoverStatus.ClaimApprobation), "CLAIM_APPROBATION_FINISHED");
+        require(cover.n["status"] == uint256(CoverStatus.ClaimApprobation) || cover.n["status"] == uint256(CoverStatus.ClaimVote), "CLAIM_APPROBATION_FINISHED");
         if (_approved) {
             cover.n["status"] = uint256(CoverStatus.ClaimVote);
             cover.n["claimUtcStartVote"] = block.timestamp; // now
@@ -246,6 +246,16 @@ contract CheckDotInsuranceCovers is ERC721 {
         } else {
             cover.n["status"] = uint256(CoverStatus.Canceled);
         }
+        cover.s["claimAdditionnalProperties"] = _additionnalProperties;
+        emit ClaimUpdated(cover.n["id"], cover.n["productId"]);
+    }
+
+    function teamCancelClaim(uint256 _insuranceTokenId, string calldata _additionnalProperties) external onlyOwner {
+        Object storage cover = tokens.data[_insuranceTokenId];
+
+        cover.n["status"] = uint256(CoverStatus.Canceled);
+        cover.n["claimUtcStartVote"] = 0;
+        cover.n["claimUtcEndVote"] = 0;
         cover.s["claimAdditionnalProperties"] = _additionnalProperties;
         emit ClaimUpdated(cover.n["id"], cover.n["productId"]);
     }
@@ -301,6 +311,7 @@ contract CheckDotInsuranceCovers is ERC721 {
 
         require(cover.n["status"] == uint256(CoverStatus.ClaimVote), "CLAIM_FINISHED");
         require(block.timestamp > cover.n["claimUtcEndVote"], "VOTE_INPROGRESS");
+        require(cover.a["coveredAddress"] == msg.sender, "ONLY_COVERED");
         require(cover.n["claimTotalApproved"] > cover.n["claimTotalUnapproved"], "CLAIM_REJECTED");
         require(pools[cover.a["coveredCurrency"]].n["reserve"] >= cover.n["claimAmount"], "UNAVAILABLE_FUNDS_AMOUNT");
         cover.n["status"] = uint256(CoverStatus.ClaimPaid);

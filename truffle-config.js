@@ -4,7 +4,8 @@ var secret = require("./secret");
 module.exports = {
   plugins: ['solidity-coverage', 'truffle-plugin-verify'],
   api_keys: {
-    bscscan: secret.API_KEY
+    bscscan: secret.API_KEY,
+    etherscan: secret.ETHER_SCAN_API_KEY
   },
   networks: {
     development: {
@@ -25,10 +26,19 @@ module.exports = {
     bsc: { // truffle deploy --network bsc
       provider: () => new HDWalletProvider(secret.MMENOMIC, `https://bsc-dataseed4.binance.org`),
       network_id: 56,
-      confirmations: 10,
+      confirmations: 2,
       timeoutBlocks: 200,
-      skipDryRun: true
+      skipDryRun: true,
+      gas: 2000000, // limit
+      gasPrice: 5000000000 // Specified in Wei (20Wei)
     },
+    eth: {
+      // https://infura.io/dashboard/ethereum
+      // truffle deploy --network eth
+      provider: () => new HDWalletProvider(secret.MMENOMIC, `https://mainnet.infura.io/v3/${secret.INFURA_API_KEY}`),
+      network_id: 1,      // Mainnet id
+      gas: 5500000,
+    }
   },
   compilers: {
     solc: {

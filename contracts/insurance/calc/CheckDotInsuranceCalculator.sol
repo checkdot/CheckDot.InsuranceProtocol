@@ -8,7 +8,7 @@ import "../../interfaces/IDex.sol";
 import "../../utils/SafeMath.sol";
 import "../../utils/SignedSafeMath.sol";
 
-import "../../interfaces/IOwnedProxy.sol";
+import "../../DaoProxy/interfaces/IOwnedProxy.sol";
 
 contract CheckDotInsuranceCalculator is IOracle {
     using SafeMath for uint;

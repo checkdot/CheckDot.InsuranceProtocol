@@ -11,7 +11,7 @@ import "../../utils/SignedSafeMath.sol";
 import "../../utils/TransferHelper.sol";
 import "../../utils/Addresses.sol";
 
-import "../../../../../CheckDot.DAOProxyContract/contracts/interfaces/IOwnedProxy.sol";
+import "../../DaoProxy/interfaces/IOwnedProxy.sol";
 
 struct Object {
     mapping(string => address) a;
