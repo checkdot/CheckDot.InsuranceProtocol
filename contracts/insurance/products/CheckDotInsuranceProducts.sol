@@ -169,8 +169,10 @@ contract CheckDotInsuranceProducts {
         require(_durationInDays >= products.data[_productId].n["minCoverInDays"], "DURATION_TOO_SHORT");
         require(_durationInDays <= products.data[_productId].n["maxCoverInDays"], "DURATION_MAX_EXCEEDED");
         require(ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPool(_payIn).token != address(0), "PAY_POOL_DOESNT_EXIST");
-        require(_coverCurrency != protocolAddresses[CHECKDOT_TOKEN], "CDT_ISNT_COVER_CURRENCY");
-        require(ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).coverIsSolvable(products.data[_productId].n["id"], products.data[_productId].n["riskRatio"], _coverCurrency, _coveredAmount), "NOT_SOLVABLE_COVER");
+        // convert the value of the covered currency amount in CDT
+        uint256 coverAmountInCDT = ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).convertCostPassingPerWrappedToken(_coveredAmount, _coverCurrency, protocolAddresses[CHECKDOT_TOKEN]);
+        // check if CDT pool support the new cover
+        require(ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).coverIsSolvable(products.data[_productId].n["id"], products.data[_productId].n["riskRatio"], protocolAddresses[CHECKDOT_TOKEN], coverAmountInCDT), "NOT_SOLVABLE_COVER");
         return true;
     }
 
@@ -180,11 +182,11 @@ contract CheckDotInsuranceProducts {
         uint256 _durationInDays,
         address _payIn) internal returns (uint256) {
         uint256 totalCostInCoverCurrency = getCoverCost(products.data[_productId].n["id"], _coverCurrency, _coveredAmount, _durationInDays);
-        uint256 payCost = ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).convertCost(totalCostInCoverCurrency, _coverCurrency, _payIn);
+        uint256 payCost = ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).convertCostPassingPerWrappedToken(totalCostInCoverCurrency, _coverCurrency, _payIn);
         uint256 fees = payCost.div(100).mul(2); // 2%
 
         if (_payIn == protocolAddresses[CHECKDOT_TOKEN]) {
-            fees = payCost.div(2); // 50% when is paid in CDT
+            fees = payCost.div(2); // 50% of the fees for the project when is paid in CDT
         }
         require(IERC20(_payIn).balanceOf(msg.sender) >= payCost, "INSUFISANT_BALANCE");
         require(IERC20(_payIn).allowance(msg.sender, address(this)) >= payCost, "INSUFISANT_ALLOWANCE");

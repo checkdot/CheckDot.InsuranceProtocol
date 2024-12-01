@@ -26,6 +26,8 @@ interface ICheckDotInsuranceCalculator {
 
     function convertCost(uint256 _costIn, address _in, address _out) external view returns (uint256);
 
+    function convertCostPassingPerWrappedToken(uint256 _costIn, address _in, address _out) external view returns (uint256);
+
     function getTokenPriceInUSD(address _token) external view returns (uint256);
 
     function getTokenPriceOut(address _in, address _out) external view returns (uint256);

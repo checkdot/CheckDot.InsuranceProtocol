@@ -43,6 +43,7 @@ struct CoverInformations {
     uint256 claimTotalApproved;
     uint256 claimTotalUnapproved;
     // others slots
+    address claimCurrency;
 }
 
 enum CoverStatus {
@@ -214,7 +215,7 @@ contract CheckDotInsuranceCovers is ERC721 {
         return IOracle(protocolAddresses[INSURANCE_CALCULATOR]).convertCost(claimFeesInCoveredCurrency, _coveredCurrency, protocolAddresses[CHECKDOT_TOKEN]);
     }
 
-    function claim(uint256 _insuranceTokenId, uint256 _claimAmount, string calldata _claimProperties) external noReentrant returns (uint256) {
+    function claim(uint256 _insuranceTokenId, uint256 _claimAmount, address _claimCurrency, string calldata _claimProperties) external noReentrant returns (uint256) {
         require(tokens.data[_insuranceTokenId].n["status"] == uint256(CoverStatus.Active), "NOT_ACTIVE_COVER");
         require(tokens.data[_insuranceTokenId].n["utcEnd"] > block.timestamp, 'COVER_ENDED');
         Object storage cover = tokens.data[_insuranceTokenId];
@@ -228,6 +229,7 @@ contract CheckDotInsuranceCovers is ERC721 {
 
         cover.s["claimProperties"] = _claimProperties;
         cover.n["claimAmount"] = _claimAmount;
+        cover.a["claimCurrency"] = _claimCurrency;
         cover.n["status"] = uint256(CoverStatus.ClaimApprobation);
         cover.n["claimRewardsInCDT"] = claimFeesInCDT;
 
@@ -326,28 +328,28 @@ contract CheckDotInsuranceCovers is ERC721 {
     // Views
     //////////
 
-    function getPools(int256 page, int256 pageSize) external view returns (PoolInformations[] memory) {
-        uint256 poolLength = poolList.length;
-        int256 queryStartPoolIndex = int256(poolLength).sub(pageSize.mul(page.add(1))).add(pageSize);
-        require(queryStartPoolIndex >= 0, "Out of bounds");
-        int256 queryEndPoolIndex = queryStartPoolIndex.sub(pageSize);
-        if (queryEndPoolIndex < 0) {
-            queryEndPoolIndex = 0;
-        }
-        int256 currentPoolIndex = queryStartPoolIndex;
-        require(uint256(currentPoolIndex) <= poolLength, "Out of bounds");
-        PoolInformations[] memory results = new PoolInformations[](uint256(currentPoolIndex - queryEndPoolIndex));
-        uint256 index = 0;
+    // function getPools(int256 page, int256 pageSize) external view returns (PoolInformations[] memory) {
+    //     uint256 poolLength = poolList.length;
+    //     int256 queryStartPoolIndex = int256(poolLength).sub(pageSize.mul(page.add(1))).add(pageSize);
+    //     require(queryStartPoolIndex >= 0, "Out of bounds");
+    //     int256 queryEndPoolIndex = queryStartPoolIndex.sub(pageSize);
+    //     if (queryEndPoolIndex < 0) {
+    //         queryEndPoolIndex = 0;
+    //     }
+    //     int256 currentPoolIndex = queryStartPoolIndex;
+    //     require(uint256(currentPoolIndex) <= poolLength, "Out of bounds");
+    //     PoolInformations[] memory results = new PoolInformations[](uint256(currentPoolIndex - queryEndPoolIndex));
+    //     uint256 index = 0;
 
-        for (currentPoolIndex; currentPoolIndex > queryEndPoolIndex; currentPoolIndex--) {
-            address token = poolList[uint256(currentPoolIndex).sub(1)];
-            results[index].token = token;
-            results[index].totalSupply = pools[token].n["totalSupply"];
-            results[index].reserve = pools[token].n["reserve"];
-            index++;
-        }
-        return results;
-    }
+    //     for (currentPoolIndex; currentPoolIndex > queryEndPoolIndex; currentPoolIndex--) {
+    //         address token = poolList[uint256(currentPoolIndex).sub(1)];
+    //         results[index].token = token;
+    //         results[index].totalSupply = pools[token].n["totalSupply"];
+    //         results[index].reserve = pools[token].n["reserve"];
+    //         index++;
+    //     }
+    //     return results;
+    // }
 
     function getPool(address _token) external view returns (PoolInformations memory) {
         PoolInformations[] memory results = new PoolInformations[](1);
@@ -440,6 +442,7 @@ contract CheckDotInsuranceCovers is ERC721 {
         r[0].claimProperties = tokens.data[tokenId].s["claimProperties"];
         r[0].claimAdditionnalProperties = tokens.data[tokenId].s["claimAdditionnalProperties"];
         r[0].claimAmount = tokens.data[tokenId].n["claimAmount"];
+        r[0].claimCurrency = tokens.data[tokenId].a["claimCurrency"];
         r[0].claimPayout = tokens.data[tokenId].n["claimPayout"];
         r[0].claimUtcPayoutDate = tokens.data[tokenId].n["claimUtcPayoutDate"];
         r[0].claimRewardsInCDT = tokens.data[tokenId].n["claimRewardsInCDT"];

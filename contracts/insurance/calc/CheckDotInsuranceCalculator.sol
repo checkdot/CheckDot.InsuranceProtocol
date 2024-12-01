@@ -45,6 +45,7 @@ contract CheckDotInsuranceCalculator is IOracle {
         
         protocolAddresses["STABLECOIN1"] = _stableCoin1;//address(0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56); // BUSD
         protocolAddresses["STABLECOIN2"] = _stableCoin2;//address(0x55d398326f99059fF775485246999027B3197955); // USDT
+        protocolAddresses["WBNB"] = address(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c); // WBNB
     }
 
     modifier onlyOwner {
@@ -66,7 +67,9 @@ contract CheckDotInsuranceCalculator is IOracle {
                 uint256 status
             ) = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getLightCoverInformation(i);
             if (coveredCurrency == _currency && status == 1) { // actives covers
-                totalCoveredAmount = totalCoveredAmount.add(coveredAmount);
+                uint256 dollarCurrencyPrice = getTokenPriceInUSDPassingPerWrappedToken(_currency);
+                uint256 totalCovered = dollarCurrencyPrice.mul(coveredAmount).div(1 ether);
+                totalCoveredAmount = totalCoveredAmount.add(totalCovered);
             }
         }
         return totalCoveredAmount;
@@ -96,10 +99,7 @@ contract CheckDotInsuranceCalculator is IOracle {
     }
 
     function getSolvableCoverAmount(uint256 _productRiskRatio, address _coverCurrency) public view returns (uint256) {
-        if (_coverCurrency == protocolAddresses[CHECKDOT_TOKEN]) { // excluding CDT Pool
-            return 0;
-        }
-        uint256 ratio = _productRiskRatio > 4 ether ? 4 ether : _productRiskRatio;
+        uint256 ratio = _productRiskRatio > 10 ether ? 10 ether : _productRiskRatio;
         uint256 totalActiveCoveredAmount = getTotalCoveredAmountFromCurrency(_coverCurrency);
         PoolInformations memory pool = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPool(_coverCurrency);
 
@@ -110,12 +110,8 @@ contract CheckDotInsuranceCalculator is IOracle {
     }
 
     function getTotalSolvableCoverAmountFromProductRiskRatio(uint256 _productRiskRatio) public view returns (uint256) {
-        PoolInformations[] memory pools = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPools(int256(0), int256(ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPoolsLength()));
-        uint256 totalCoverableAmountInUSD = 0;
-        for (uint256 i = 0; i < pools.length; i++) {
-            uint256 coverableAmount = getSolvableCoverAmount(_productRiskRatio, pools[i].token);
-            totalCoverableAmountInUSD = totalCoverableAmountInUSD.add(getTokenPriceInUSD(pools[i].token).mul(coverableAmount).div(1 ether));
-        }
+        uint256 coverableAmount = getSolvableCoverAmount(_productRiskRatio, protocolAddresses[CHECKDOT_TOKEN]);
+        uint256 totalCoverableAmountInUSD = getTokenPriceInUSDPassingPerWrappedToken(protocolAddresses[CHECKDOT_TOKEN]).mul(coverableAmount).div(1 ether);
         return totalCoverableAmountInUSD;
     }
 
@@ -135,26 +131,28 @@ contract CheckDotInsuranceCalculator is IOracle {
     }
 
     function getSolvability() public view returns(uint256, uint256, uint256) {
-        PoolInformations[] memory pools = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPools(int256(0), int256(ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPoolsLength()));
-        uint256 totalReserve = 0;
-        uint256 totalActiveCoveredAmount = 0;
-        for (uint256 i = 0; i < pools.length; i++) {
-            totalReserve = totalReserve.add(getTokenPriceInUSD(pools[i].token).mul(pools[i].reserve).div(1 ether));
-            uint256 currentTotalActiveCoveredAmount = getTotalCoveredAmountFromCurrency(pools[i].token);
-            
-            totalActiveCoveredAmount = totalActiveCoveredAmount.add(getTokenPriceInUSD(pools[i].token).mul(currentTotalActiveCoveredAmount).div(1 ether));
-        }
+        PoolInformations memory pool = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPool(protocolAddresses[CHECKDOT_TOKEN]);
+        
+        uint256 dollarPoolSize = getTokenPriceInUSDPassingPerWrappedToken(pool.token);
+        uint256 totalReserve = dollarPoolSize.mul(pool.reserve).div(1 ether);
+        uint256 currentTotalActiveCoveredAmount = getTotalCoveredAmountFromCurrency(pool.token);
+        uint256 totalActiveCoveredAmount = dollarPoolSize.mul(currentTotalActiveCoveredAmount).div(1 ether);
         uint256 solvabilityRatio = totalActiveCoveredAmount.mul(1 ether).div(totalReserve); // multiplication 1 ether pour decaler les decimals.
-        uint256 SCRPercent = uint256(4 ether).sub(solvabilityRatio > 4 ether ? 4 ether : solvabilityRatio).mul(100);
+        uint256 SCRPercent = uint256(10 ether).sub(solvabilityRatio > 10 ether ? 10 ether : solvabilityRatio).mul(100);
         uint256 SCRSize = totalReserve.mul(1 ether).div(SCRPercent).mul(100); // multiplication 1 ether pour decaler les decimals.
 
         // exemple: 95000000000000000 (SolvabilityRatio=0.095), 390400000000000000000 (SCR=390.4), 269040200000000000000 (SCRSize=269.402)
-        return (solvabilityRatio > 4 ether ? 4 ether : solvabilityRatio, SCRPercent, SCRSize);
+        return (solvabilityRatio > 10 ether ? 10 ether : solvabilityRatio, SCRPercent, SCRSize);
     }
 
     function getClaimPrice(address _coveredCurrency, uint256 _claimAmount) public view returns (uint256) {
         uint256 claimFeesInCoveredCurrency = _claimAmount.mul(1).div(100); // 1% fee
         return convertCost(claimFeesInCoveredCurrency, _coveredCurrency, protocolAddresses[CHECKDOT_TOKEN]);
+    }
+
+    function convertCostPassingPerWrappedToken(uint256 _costIn, address _in, address _out) public view returns (uint256) {
+        uint256 costInWBNB = convertCost(_costIn, _in, protocolAddresses["WBNB"]);
+        return convertCost(costInWBNB, protocolAddresses["WBNB"], _out);
     }
 
     function convertCost(uint256 _costIn, address _in, address _out) public view returns (uint256) {
@@ -166,6 +164,10 @@ contract CheckDotInsuranceCalculator is IOracle {
         } else {
             return _costIn;
         }
+    }
+
+    function getTokenPriceInUSDPassingPerWrappedToken(address _token) public view returns (uint256) {
+        return convertCostPassingPerWrappedToken(1 ether, _token, _token != protocolAddresses["STABLECOIN1"] ? protocolAddresses["STABLECOIN1"] : protocolAddresses["STABLECOIN2"]);
     }
 
     function getTokenPriceInUSD(address _token) public view returns (uint256) {
