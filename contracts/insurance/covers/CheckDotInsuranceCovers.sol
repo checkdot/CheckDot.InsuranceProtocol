@@ -172,7 +172,6 @@ contract CheckDotInsuranceCovers is ERC721 {
     //////////
 
     function createPool(address _token) public onlyOwner {
-        require(_token != address(0), 'ZERO_ADDRESS');
         require(pools[_token].a["token"] == address(0), 'ALREADY_EXISTS');
 
         pools[_token].a["token"] = _token;
@@ -210,18 +209,14 @@ contract CheckDotInsuranceCovers is ERC721 {
         _contribute(_token, _from);
     }
 
-    function getClaimPrice(address _coveredCurrency, uint256 _claimAmount) public view returns (uint256) {
-        uint256 claimFeesInCoveredCurrency = _claimAmount.div(100).mul(1); // 1% fee
-        return IOracle(protocolAddresses[INSURANCE_CALCULATOR]).convertCost(claimFeesInCoveredCurrency, _coveredCurrency, protocolAddresses[CHECKDOT_TOKEN]);
-    }
-
     function claim(uint256 _insuranceTokenId, uint256 _claimAmount, address _claimCurrency, string calldata _claimProperties) external noReentrant returns (uint256) {
         require(tokens.data[_insuranceTokenId].n["status"] == uint256(CoverStatus.Active), "NOT_ACTIVE_COVER");
         require(tokens.data[_insuranceTokenId].n["utcEnd"] > block.timestamp, 'COVER_ENDED');
         Object storage cover = tokens.data[_insuranceTokenId];
 
         require(_claimAmount > 0 && _claimAmount <= cover.n["coveredAmount"], 'AMOUNT_UNAVAILABLE');
-        uint256 claimFeesInCDT = getClaimPrice(cover.a["coveredCurrency"], _claimAmount);
+        uint256 claimAmountInCDT = IOracle(protocolAddresses[INSURANCE_CALCULATOR]).convertCostPassingPerWrappedToken(_claimAmount, _claimCurrency, protocolAddresses[CHECKDOT_TOKEN]);
+        uint256 claimFeesInCDT = IOracle(protocolAddresses[INSURANCE_CALCULATOR]).getClaimPrice(protocolAddresses[CHECKDOT_TOKEN], claimAmountInCDT);
         
         require(IERC20(protocolAddresses[CHECKDOT_TOKEN]).balanceOf(cover.a["coveredAddress"]) >= claimFeesInCDT, "INSUFISANT_BALANCE");
         TransferHelper.safeTransferFrom(protocolAddresses[CHECKDOT_TOKEN], cover.a["coveredAddress"], address(this), claimFeesInCDT); // send tokens to insuranceProtocol

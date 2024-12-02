@@ -19,32 +19,12 @@ struct Object {
     mapping(string => string) s;
 }
 
-struct ProductInformations {
-    uint256 id;
-    string  name;
-    string  riskType;
-    string  uri;
-    uint256 status;
-    uint256 riskRatio;
-    uint256 basePremiumInPercent;
-    uint256 minCoverInDays;
-    uint256 maxCoverInDays;
-}
-
-enum ProductStatus {
-    NotSet,       // 0 |
-    Active,       // 1 ===|
-    Paused,       // 2 ===|
-    Canceled      // 3 |
-}
-
 contract CheckDotInsuranceProducts {
     using SafeMath for uint256;
     using SignedSafeMath for int256;
     using Counters for Counters.Counter;
 
     event PurchasedCover(uint256 coverId, uint256 productId, uint256 coveredAmount, uint256 premiumCost);
-    event ProductCreated(uint256 id);
 
     string private constant INSURANCE_COVERS = "INSURANCE_COVERS";
     string private constant INSURANCE_CALCULATOR = "INSURANCE_CALCULATOR";
@@ -56,13 +36,6 @@ contract CheckDotInsuranceProducts {
 
     /* Map of Essentials Addresses */
     mapping(string => address) private protocolAddresses;
-
-    struct Products {
-        mapping(uint256 => Object) data;
-        Counters.Counter counter;
-    }
-
-    Products private products;
 
     // END V1
 
@@ -79,16 +52,6 @@ contract CheckDotInsuranceProducts {
 
     modifier onlyOwner {
         require(msg.sender == IOwnedProxy(address(this)).getOwner(), "FORBIDDEN");
-        _;
-    }
-
-    modifier productExists(uint256 productId) {
-        require(bytes(products.data[productId].s["name"]).length != 0, "DOESNT_EXISTS");
-        _;
-    }
-
-    modifier activatedProduct(uint256 productId) {
-        require(products.data[productId].n["status"] == uint256(ProductStatus.Active), "Product is paused");
         _;
     }
 
@@ -111,77 +74,53 @@ contract CheckDotInsuranceProducts {
     function getInsuranceCalculatorAddress() external view returns (address) {
         return protocolAddresses[INSURANCE_CALCULATOR];
     }
-   
-    function createProduct(uint256 _id, bytes memory _data) external onlyOwner {
-        (
-            string memory _name,
-            string memory _riskType,
-            string memory _uri,
-            uint256 _riskRatio,
-            uint256 _basePremiumInPercent,
-            uint256 _minCoverInDays,
-            uint256 _maxCoverInDays
-        ) = abi.decode(_data, (string, string, string, uint256, uint256, uint256, uint256));
-        require(_minCoverInDays > 0, "MIN_COVER_UNALLOWED");
-        require(_maxCoverInDays > 0, "MAX_COVER_UNALLOWED");
-        require(_id <= products.counter.current(), "NOT_VALID_PRODUCT_ID");
-        uint256 id = _id;
 
-        products.data[id].n["id"] = id;
-        products.data[id].s["riskType"] = _riskType;
-        products.data[id].s["uri"] = _uri;
-        products.data[id].s["name"] = _name;
-        products.data[id].n["riskRatio"] = _riskRatio;
-        products.data[id].n["basePremiumInPercent"] = _basePremiumInPercent;
-        products.data[id].n["status"] = uint256(ProductStatus.Active);
-        products.data[id].n["minCoverInDays"] = _minCoverInDays;
-        products.data[id].n["maxCoverInDays"] = _maxCoverInDays;
-        if (id == products.counter.current()) {
-            products.counter.increment();
-        }
-        emit ProductCreated(id);
-    }
-
-    function buyCover(uint256 _productId,
+    function buyCover(bytes memory _productData,
         address _coveredAddress,
         uint256 _coveredAmount,
         address _coverCurrency,
         uint256 _durationInDays,
-        address _payIn) external payable noReentrant activatedProduct(_productId) noContract {
-        require(isValidBuy(_productId, _coveredAddress, _coveredAmount, _coverCurrency, _durationInDays, _payIn), "UNAVAILABLE");
-        
-        Object storage product = products.data[_productId];
+        address _payIn) external payable noReentrant noContract {
+        (
+            uint256 _productId,
+            /*uint256  _riskRatio */,
+            uint256 _basePremiumInPercent,
+            string memory _uri
+        ) = abi.decode(_productData, (uint256, uint256, uint256, string));
 
-        uint256 totalCostInCoverCurrency = _payCover(_productId, _coveredAmount, _coverCurrency, _durationInDays, _payIn);
-        uint256 tokenId = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).mintInsuranceToken(product.n["id"], _coveredAddress, _durationInDays, totalCostInCoverCurrency, _coverCurrency, _coveredAmount, product.s["uri"]);
+        require(isValidBuy(_coveredAddress, _durationInDays, _payIn), "UNAVAILABLE");
 
-        emit PurchasedCover(tokenId, product.n["id"], _coveredAmount, totalCostInCoverCurrency);
+        uint256 totalCostInCoverCurrency = _payCover(_basePremiumInPercent, _coveredAmount, _coverCurrency, _durationInDays, _payIn);
+        uint256 tokenId = ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).mintInsuranceToken(_productId, _coveredAddress, _durationInDays, totalCostInCoverCurrency, _coverCurrency, _coveredAmount, _uri);
+
+        emit PurchasedCover(tokenId, _productId, _coveredAmount, totalCostInCoverCurrency);
     }
 
-    function isValidBuy(uint256 _productId,
-        address _coveredAddress,
-        uint256 _coveredAmount,
-        address _coverCurrency,
+    function isValidBuy(address _coveredAddress,
         uint256 _durationInDays,
         address _payIn) public view returns (bool) {
         require(_coveredAddress != address(0), "EMPTY_COVER");
-        require(products.data[_productId].n["status"] == uint256(ProductStatus.Active), "PRODUCT_IS_DISABLED");
-        require(_durationInDays >= products.data[_productId].n["minCoverInDays"], "DURATION_TOO_SHORT");
-        require(_durationInDays <= products.data[_productId].n["maxCoverInDays"], "DURATION_MAX_EXCEEDED");
+        require(_durationInDays >= 1, "DURATION_TOO_SHORT");
         require(ICheckDotInsuranceCovers(protocolAddresses[INSURANCE_COVERS]).getPool(_payIn).token != address(0), "PAY_POOL_DOESNT_EXIST");
-        // convert the value of the covered currency amount in CDT
-        uint256 coverAmountInCDT = ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).convertCostPassingPerWrappedToken(_coveredAmount, _coverCurrency, protocolAddresses[CHECKDOT_TOKEN]);
-        // check if CDT pool support the new cover
-        require(ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).coverIsSolvable(products.data[_productId].n["id"], products.data[_productId].n["riskRatio"], protocolAddresses[CHECKDOT_TOKEN], coverAmountInCDT), "NOT_SOLVABLE_COVER");
         return true;
     }
 
-    function _payCover(uint256 _productId,
+    // checked by front-end and if user order the cover isn't valid
+    function protocolIsSolvable(uint256 _coveredAmount,
+        address _coverCurrency,
+        uint256 _riskRatio) public view returns (bool) {
+        // convert the value of the covered currency amount in CDT
+        uint256 coverAmountInCDT = ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).convertCostPassingPerWrappedToken(_coveredAmount, _coverCurrency, protocolAddresses[CHECKDOT_TOKEN]);
+        // check if CDT pool support the new cover
+        return ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).coverIsSolvable(0, _riskRatio, protocolAddresses[CHECKDOT_TOKEN], coverAmountInCDT);
+    }
+
+    function _payCover(uint256 _basePremiumInPercent,
         uint256 _coveredAmount,
         address _coverCurrency,
         uint256 _durationInDays,
         address _payIn) internal returns (uint256) {
-        uint256 totalCostInCoverCurrency = getCoverCost(products.data[_productId].n["id"], _coverCurrency, _coveredAmount, _durationInDays);
+        uint256 totalCostInCoverCurrency = getCoverCost(_basePremiumInPercent, _coveredAmount, _durationInDays);
         uint256 payCost = ICheckDotInsuranceCalculator(protocolAddresses[INSURANCE_CALCULATOR]).convertCostPassingPerWrappedToken(totalCostInCoverCurrency, _coverCurrency, _payIn);
         uint256 fees = payCost.div(100).mul(2); // 2%
 
@@ -203,38 +142,10 @@ contract CheckDotInsuranceProducts {
     // Views
     //////////
 
-    function getCoverCost(uint256 _productId, address _coverCurrency, uint256 _coveredAmount, uint256 _durationInDays) public view returns (uint256) {
-        (
-            /** Unused Parameter **/,
-            uint256 cumulativePremiumInPercent,
-            /** Unused Parameter **/,
-            /** Unused Parameter **/
-        ) = getCoverCurrencyDetails(_coverCurrency);
-
-        uint256 premiumInPercent = products.data[_productId].n["basePremiumInPercent"].add(cumulativePremiumInPercent);
-        uint256 costOnOneYear = _coveredAmount.mul(premiumInPercent).div(100 ether);
+    function getCoverCost(uint256 _basePremiumInPercent, uint256 _coveredAmount, uint256 _durationInDays) public pure returns (uint256) {
+        uint256 costOnOneYear = _coveredAmount.mul(_basePremiumInPercent).div(100 ether);
         
         return costOnOneYear.mul(_durationInDays.mul(1 ether)).div(365 ether);
-    }
-
-    function getProductLength() public view returns (uint256) {
-        return products.counter.current();
-    }
-
-    function getProductDetails(uint256 _id) public view returns (ProductInformations memory) {
-        ProductInformations[] memory results = new ProductInformations[](1);
-        Object storage product = products.data[_id];
-        
-        results[0].id = product.n["id"];
-        results[0].riskType = product.s["riskType"];
-        results[0].name = product.s["name"];
-        results[0].uri = product.s["uri"];
-        results[0].status = product.n["status"];
-        results[0].riskRatio = product.n["riskRatio"];
-        results[0].basePremiumInPercent = product.n["basePremiumInPercent"];
-        results[0].minCoverInDays = product.n["minCoverInDays"];
-        results[0].maxCoverInDays = product.n["maxCoverInDays"];
-        return results[0];
     }
 
     function getCoverCurrencyDetails(address _coverCurrency) public view returns (uint256, uint256, int256, uint256) {
@@ -245,22 +156,6 @@ contract CheckDotInsuranceProducts {
         uint256 availablePercentage = signedCapacity > 0 ? uint256(100 ether).sub(uint256(capacity).mul(100 ether).div(poolReserve)) : 0;
         uint256 cumulativePremiumInPercent = availablePercentage.mul(3 ether).div(100 ether); // 3% addable
         return (currentCoverCurrencyCoveredAmount, cumulativePremiumInPercent, signedCapacity, poolReserve);
-    }
-
-    //////////
-    // Update
-    //////////
-
-    function pauseProduct(uint256 _productId) external onlyOwner {
-        products.data[_productId].n["status"] = uint256(ProductStatus.Paused);
-    }
-
-    function activeProduct(uint256 _productId) external onlyOwner {
-        products.data[_productId].n["status"] = uint256(ProductStatus.Active);
-    }
-
-    function cancelProduct(uint256 _productId) external onlyOwner {
-        products.data[_productId].n["status"] = uint256(ProductStatus.Canceled);
     }
 
 }

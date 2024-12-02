@@ -8,4 +8,6 @@ pragma solidity ^0.8.9;
  */
 interface IOracle {
     function convertCost(uint256 _costIn, address _in, address _out) external view returns (uint256);
+    function convertCostPassingPerWrappedToken(uint256 _costIn, address _in, address _out) external view returns (uint256);
+    function getClaimPrice(address _coveredCurrency, uint256 _claimAmount) external view returns (uint256);
 }
